@@ -287,6 +287,9 @@ var dlgExpect = 'auto';        // 'auto' | 'ru' | 'ko' — кого слушае
 var dlgLastSpeaker = null;     // кто говорил последний раз
 var dlgMisses = 0;             // подряд неудачных прослушек
 var dlgFlip = false;           // принудительно сменить язык прослушивания
+var dlgCurLang = null;         // текущий язык прослушивания диалога (web)
+var IS_IOS = /iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent) ||
+             (navigator.userAgent.indexOf('Mac') > -1 && 'ontouchend' in document);
 var recog = null;
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 var recogReset = null, makeRecog = null, webStop = null, webStart = null;   // назначаются в браузерной ветке ниже
@@ -1016,9 +1019,13 @@ function rms(){
 }
 function stopMeter(){
   if (volLoopId){ clearInterval(volLoopId); volLoopId = null; }
+  if (micStream){
+    try{ micStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+    micStream = null; analyser = null;
+  }
 }
 function startVolLoop(){
-  stopMeter();
+  if (volLoopId){ clearInterval(volLoopId); volLoopId = null; }
   volLoopId = setInterval(function(){
     if (!dialogMode || !listening) return;
     var v = rms();
@@ -1030,9 +1037,9 @@ function startVolLoop(){
       try{ if (recog) recog.stop(); }catch(e){}
       return;
     }
-    // тишина с самого начала дольше 3.5 с — на этом языке никто не говорит,
-    // переключаем язык прослушивания
-    if (!speechSeen && now - listenStartedAt > 3500){
+    // тишина с самого начала дольше 9 с — на этом языке никто не говорит
+    // (человек может думать перед ответом), переключаем язык прослушивания
+    if (!speechSeen && now - listenStartedAt > 9000){
       dlgFlip = true;
       dlgMisses = 0;
       dlgListen();
@@ -1078,13 +1085,21 @@ function dlgListen(){
     AndroidBridge.startListen(BCP[src]);
   } else if (SR){
     webStop();
-    startMeter();
+    dlgCurLang = src;
     listenStartedAt = Date.now();
     lastLoudAt = listenStartedAt;
     speechSeen = false;
     finalizedFlag = false;
-    setTimeout(function(){ if (dialogMode) webStart(); }, 250);
-    setTimeout(function(){ if (dialogMode && listening) startVolLoop(); }, 400);
+    if (IS_IOS){
+      // iOS: открытый getUserMedia-поток блокирует SpeechRecognition —
+      // метр громкости не включаем, и гасим поток, если остался от ручного режима
+      stopMeter();
+      setTimeout(function(){ if (dialogMode) webStart(); }, 250);
+    } else {
+      startMeter();
+      setTimeout(function(){ if (dialogMode) webStart(); }, 250);
+      setTimeout(function(){ if (dialogMode && listening) startVolLoop(); }, 400);
+    }
   }
 }
 
@@ -1138,14 +1153,14 @@ function dlgOnListenError(msg, code){
   var silence = (code === 7 || code === 1 || code === 'no-speech' || code === 'aborted');
   if (dialogMode && silence){
     dlgMisses++;
-    if (dlgMisses >= 2 && dlgExpect === 'auto'){
+    if (dlgMisses >= 3 && dlgExpect === 'auto'){
       dlgFlip = true;
       dlgMisses = 0;
       setStatus('Не слышу речь — переключаю язык прослушивания', 'err');
     } else {
       setStatus('Тишина — слушаю…');
     }
-    setTimeout(dlgListen, 1500);
+    setTimeout(dlgListen, 2200);
   } else if (dialogMode){
     dlgErrStreak++;
     setStatus(msg, 'err');
@@ -1269,7 +1284,7 @@ if (NATIVE){
         listening = true;
         micBtn.classList.add('rec');
         if (dialogMode){
-          dlgSetState('listening', dir.split('2')[0]);
+          dlgSetState('listening', dlgCurLang || dir.split('2')[0]);
         } else {
           setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
         }
@@ -1312,7 +1327,7 @@ if (NATIVE){
       if (listening) return;
       recog = makeRecog();
       try{
-        recog.lang = BCP[dir.split('2')[0]];
+        recog.lang = BCP[(dialogMode && dlgCurLang) ? dlgCurLang : dir.split('2')[0]];
         recog.start();
       }catch(e){
         // «уже запущен» или разовый сбой — рвём и пробуем ещё раз через 600 мс
@@ -1320,7 +1335,7 @@ if (NATIVE){
         setTimeout(function(){
           if (listening) return;
           recog = makeRecog();
-          try{ recog.lang = BCP[dir.split('2')[0]]; recog.start(); }
+          try{ recog.lang = BCP[(dialogMode && dlgCurLang) ? dlgCurLang : dir.split('2')[0]]; recog.start(); }
           catch(e2){ setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err'); }
         }, 600);
         return;
