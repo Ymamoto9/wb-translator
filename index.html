@@ -1168,19 +1168,32 @@ function dlgRun(text, sl, tl){
   });
 }
 
-// ошибка прослушки в диалоге: переключаем язык ТОЛЬКО если это тишина
-// (говорят на другом языке); ошибки сервиса — просто повтор того же языка
+// ошибка прослушки в диалоге:
+// код 7 / «no-speech» = была речь, но не на языке прослушивания → СРАЗУ
+// переключаем язык (русский может говорить сколько угодно раз подряд);
+// код 1 = полная тишина → остаёмся на том же языке;
+// ошибки сервиса (5 и др.) — не переключают язык вовсе
 var dlgErrStreak = 0;
 function dlgOnListenError(msg, code){
   listening = false;
   micBtn.classList.remove('rec');
-  var silence = (code === 7 || code === 1 || code === 'no-speech' || code === 'aborted');
-  if (dialogMode && silence){
+  var silence = (code === 1 || code === 'aborted');
+  var speechOtherLang = (code === 7 || code === 'no-speech');
+  if (dialogMode && speechOtherLang){
+    if (dlgExpect === 'auto'){
+      dlgFlip = true;
+      setStatus('Речь на другом языке — переключаюсь…', 'err');
+    } else {
+      setStatus('Речь не распознана — слушаю ' + LANG[dlgListenLang()], 'err');
+    }
+    dlgMisses = 0;
+    setTimeout(dlgListen, 1200);
+  } else if (dialogMode && silence){
     dlgMisses++;
-    if (dlgMisses >= 2 && dlgExpect === 'auto'){
+    if (dlgMisses >= 3 && dlgExpect === 'auto'){
       dlgFlip = true;
       dlgMisses = 0;
-      setStatus('Не слышу речь — переключаю язык прослушивания', 'err');
+      setStatus('Долго тишина — пробую другой язык', 'err');
     } else {
       setStatus('Тишина — слушаю…');
     }
