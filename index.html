@@ -163,6 +163,33 @@
   #chatClose:active{background:rgba(255,255,255,.35);}
   #chatFullList{flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:10px;}
   #chatFullList .msg{max-width:96%;}
+  /* полноэкранная кнопка диалога */
+  #dlgFull{position:fixed; inset:0; background:var(--bg); z-index:70; display:flex; flex-direction:column;}
+  #dlgFull .cf-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; background:var(--wb-grad); color:#fff; font-weight:800; font-size:15px;
+  }
+  #dlgMin, #dlgStop2{
+    background:rgba(255,255,255,.2); border:none; color:#fff;
+    border-radius:8px; padding:6px 12px; font-weight:800; font-size:13px; cursor:pointer;
+  }
+  #dlgMin:active, #dlgStop2:active{background:rgba(255,255,255,.35);}
+  #dlgStop2{background:#c62828;}
+  .hold-wrap{flex:1; display:flex; align-items:center; justify-content:center; padding:16px;}
+  #holdBtn{
+    width:min(72vw, 340px); height:min(72vw, 340px); border-radius:50%;
+    border:none; color:#fff; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+    font-weight:900; user-select:none; -webkit-user-select:none; touch-action:none;
+    box-shadow:0 12px 44px rgba(0,0,0,.4);
+    transition:background .25s;
+  }
+  #holdBtn.hold{background:#1e9e50;}
+  #holdBtn.wait{background:#e8a200;}
+  #holdBtn.listen{background:#2f6fdb;}
+  #holdBtn .hold-ru{font-size:min(7vw, 30px); letter-spacing:1px;}
+  #holdBtn .hold-ko{font-size:min(5.6vw, 24px); opacity:.9;}
+  #holdHint{text-align:center; color:var(--muted); font-size:13px; padding:0 24px 24px;}
   .h-item{
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     padding:8px 10px; font-size:15px; cursor:pointer;
@@ -272,6 +299,23 @@
   <div id="chatFullList"></div>
 </div>
 
+<div id="dlgFull" class="hidden">
+  <div class="cf-head">
+    <span>💬 Режим диалога</span>
+    <span>
+      <button id="dlgMin">⤡</button>
+      <button id="dlgStop2">■ Стоп</button>
+    </span>
+  </div>
+  <div class="hold-wrap">
+    <button id="holdBtn" class="hold listen">
+      <span class="hold-ru">СЛУШАЙТЕ</span>
+      <span class="hold-ko">들으세요</span>
+    </button>
+  </div>
+  <div id="holdHint">Держите зелёную кнопку и говорите. Отпустите — перевод и озвучка. Синее — слушаем ответ.</div>
+</div>
+
 <script>
 'use strict';
 var $ = function(id){ return document.getElementById(id); };
@@ -289,15 +333,16 @@ var dlgMisses = 0;             // подряд неудачных прослуш
 var dlgFlip = false;           // принудительно сменить язык прослушивания
 var recog = null;
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-var recogReset = null, makeRecog = null, webStop = null, webStart = null;
+var recogReset = null, makeRecog = null, webStop = null, webStart = null, webStartSingle = null, stopLang = null, manualRecog = null;
 var dualBroken = false;   // платформа не тянет два потока — одиночный режим
 var dualListening = false; // сейчас работают оба потока
+var dual = { ru: null, ko: null };   // два параллельных распознавателя
 
 var LANG = { ru:'РУССКИЙ', ko:'КОРЕЙСКИЙ' };
 var SHORT = { ru:'РУС', ko:'КОР' };
 var BCP  = { ru:'ru-RU', ko:'ko-KR' };
 var NATIVE = !!(window.AndroidBridge && window.AndroidBridge.startListen);
-var APP_VERSION = 'v2.4';   // не забывать обновлять при новых релизах
+var APP_VERSION = 'v2.5';   // не забывать обновлять при новых релизах
 $('verLabel').textContent = 'Переводчик RWB ' + APP_VERSION;
 
 // ---- инфо ----
@@ -1132,7 +1177,66 @@ function dlgSetState(kind, lang){
   else if (kind === 'translating') txt.textContent = '⏳ Перевожу…';
   else if (kind === 'speaking')    txt.textContent = '🔊 Озвучиваю: ' + LANG[lang];
   else txt.textContent = 'Готов';
+  // полноэкранная кнопка
+  if (kind === 'translating' || kind === 'speaking') setHold('wait');
+  else if (kind === 'listening') setHold(holdActive ? 'hold' : 'listen');
 }
+
+// ---------- полноэкранная кнопка «удерживай и говори» ----------
+var holdActive = false, holdLang = null;
+function setHold(state){
+  var b = $('holdBtn');
+  if (!b) return;
+  b.className = 'holdBtn ' + state;
+  var T = {
+    hold:   ['ГОВОРИТЕ', '말하세요'],
+    wait:   ['ОЖИДАЙТЕ', '기다리세요'],
+    listen: ['СЛУШАЙТЕ', '들으세요']
+  }[state];
+  b.querySelector('.hold-ru').textContent = T[0];
+  b.querySelector('.hold-ko').textContent = T[1];
+}
+function holdStart(){
+  if (!dialogMode || holdActive || busy) return;
+  unlockTTS();
+  holdActive = true;
+  setHold('hold');
+  // язык записи: тот, на котором говорит держащий телефон
+  holdLang = dlgLastSpeaker ? (dlgLastSpeaker === 'ru' ? 'ko' : 'ru') : 'ru';
+  dlgMisses = 0;
+  if (NATIVE){
+    AndroidBridge.stopListen();
+    AndroidBridge.startListen(BCP[holdLang]);
+  } else {
+    webStop();
+    var r = makeRecog(holdLang, true);
+    try{ r.lang = BCP[holdLang]; r.start(); dual[holdLang] = r; }catch(e){}
+  }
+}
+function holdRelease(){
+  if (!holdActive) return;
+  holdActive = false;
+  setHold('wait');
+  if (NATIVE){
+    AndroidBridge.stopListen();   // остановка → придёт финальный результат
+  } else {
+    try{ if (dual[holdLang]) dual[holdLang].stop(); }catch(e){}
+    stopLang(holdLang);
+  }
+  // если результат не пришёл (слишком короткое нажатие) — вернуть слушать
+  setTimeout(function(){
+    if (dialogMode && !holdActive && !busy && !listening && !finalizedFlag){
+      dlgListen();
+    }
+  }, 2500);
+}
+$('holdBtn').addEventListener('pointerdown', function(e){ e.preventDefault(); holdStart(); });
+$('holdBtn').addEventListener('pointerup', function(e){ e.preventDefault(); holdRelease(); });
+$('holdBtn').addEventListener('pointercancel', function(){ holdRelease(); });
+$('holdBtn').addEventListener('touchstart', function(e){ e.preventDefault(); holdStart(); }, {passive:false});
+$('holdBtn').addEventListener('touchend', function(e){ e.preventDefault(); holdRelease(); }, {passive:false});
+$('dlgMin').addEventListener('click', function(){ $('dlgFull').classList.add('hidden'); });
+$('dlgStop2').addEventListener('click', function(){ dlgStop(); $('dlgFull').classList.add('hidden'); $('dlgBtn').classList.remove('hidden'); $('dlgActive').classList.add('hidden'); });
 
 function dlgListen(){
   if (!dialogMode) return;
@@ -1268,6 +1372,8 @@ function dlgStart(){
   dlgLastSpeaker = null;      // новый диалог всегда начинаем с русского
   $('dlgBtn').classList.add('hidden');
   $('dlgActive').classList.remove('hidden');
+  $('dlgFull').classList.remove('hidden');   // полноэкранная кнопка
+  setHold('listen');
   if (NATIVE){ AndroidBridge.stopSpeak(); }
   else {
     if (SR) webStop();   // убиваем ручную сессию микрофона, если была
@@ -1281,6 +1387,8 @@ function dlgStop(){
   dialogMode = false;
   $('dlgBtn').classList.remove('hidden');
   $('dlgActive').classList.add('hidden');
+  $('dlgFull').classList.add('hidden');
+  stopMeter();
   if (NATIVE){ AndroidBridge.stopListen(); AndroidBridge.stopSpeak(); }
   else {
     if (SR) webStop();
@@ -1372,7 +1480,8 @@ if (NATIVE){
         listening = true;
         micBtn.classList.add('rec');
         if (dialog){
-          dlgSetState('listening', dualListening ? 'both' : l);
+          if (holdActive){ setHold('hold'); }
+          else { dlgSetState('listening', dualListening ? 'both' : l); }
         } else {
           setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
         }
