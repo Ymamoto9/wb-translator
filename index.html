@@ -101,7 +101,7 @@
 <body>
 <header>
   <h1>Переводчик RWB</h1>
-  <span id="verBadge">v4.3 · iOS/Android</span>
+  <span id="verBadge">v4.4 · iOS mic fix</span>
 </header>
 
 <div id="status">Нажмите микрофон, чтобы начать диалог</div>
@@ -230,6 +230,9 @@ var ruHasAny = false;        // есть ли ХОТЬ какой-то русс�
 var koHasAny = false;        // есть ли хоть какой-то корейский голос
 var ttsWarnedRu = false;     // одноразовые предупреждения «озвучка недоступна»
 var ttsWarnedKo = false;
+var listenWatch = null;      // сторож iOS: start() вызван, но onresult молчит
+var gotResult = false;       // пришёл ли хоть какой-то onresult в текущей сессии
+var iosStuckN = 0;           // счётчик «зависших» стартов (лестница повторов)
 
 /* =================== UI =================== */
 function $(id){ return document.getElementById(id); }
@@ -558,6 +561,13 @@ function speak(text, lang, onDone){
 }
 
 /* =================== ДИАЛОГ =================== */
+/* FALLBACK НА iOS (если костыли ниже не помогут на конкретном iPhone):
+ * WebKit bug 317741 — после speechSynthesis аудиосессия микрофона не
+ * освобождается, recognition.start() виснет без onresult. Радикальное
+ * решение, если придётся: отказаться от webkitSpeechRecognition на iOS
+ * и перейти на MediaRecorder (запись аудио) + внешний STT (бесплатный
+ * эндпоинт или локальная модель). Живое распознавание теряется, но баг
+ * обходится полностью. Точка переключения — здесь, в dlgListen(). */
 function warmMic(){
   /* ОДИН раз запрашиваем разрешение и СРАЗУ гасим поток:
      открытый getUserMedia-поток блокирует SpeechRecognition на iOS
@@ -579,6 +589,7 @@ function webStop(){
     try { recog._killed = true; recog.abort(); } catch(e){}
     recog = null;
   }
+  if (listenWatch){ clearTimeout(listenWatch); listenWatch = null; }
 }
 
 function dlgListen(){
@@ -595,11 +606,16 @@ function dlgListen(){
   }
   recog = new SR();
   recog.lang = dlgCurLang;           // язык доносим ДО распознавателя явно
-  recog.continuous = true;           // браузер всё равно может сам оборвать сессию
-  recog.interimResults = true;       // (тишина/таймаут) — подхватывает onend ниже
+  /* WebKit на iOS обрабатывает continuous иначе и копит транскрипт со сбоями —
+     на iOS continuous=false + перезапуск в onend; на Android continuous=true */
+  recog.continuous = !IS_IOS;
+  recog.interimResults = true;
   recog.maxAlternatives = 1;
 
   recog.onresult = function(ev){
+    gotResult = true;                        // микрофон жив — сторож зависания не нужен
+    iosStuckN = 0;
+    if (listenWatch){ clearTimeout(listenWatch); listenWatch = null; }
     var fin = '';
     for (var i = ev.resultIndex; i < ev.results.length; i++){
       if (ev.results[i].isFinal) fin += ev.results[i][0].transcript;
@@ -641,6 +657,23 @@ function dlgListen(){
   };
 
   try { recog.start(); } catch(e){ scheduleRestart(1500); }
+
+  /* iOS: start() может «виснуть» (баг WebKit 317741) — сессия открыта,
+     но onresult не приходит. Через 5 с тишины от распознавателя сбрасываем
+     зависший экземпляр (abort) и создаём НОВЫЙ с нарастающей задержкой:
+     300 → 1000 → 2000 → 3500 мс (дальше держим 3500) */
+  if (IS_IOS){
+    gotResult = false;
+    if (listenWatch) clearTimeout(listenWatch);
+    listenWatch = setTimeout(function(){
+      listenWatch = null;
+      if (!dlgOn || dlgPhase !== 'listen' || gotResult) return;
+      webStop();                             // abort зависшего экземпляра
+      var ladder = [300, 1000, 2000, 3500];
+      scheduleRestart(ladder[Math.min(iosStuckN, 3)]);
+      iosStuckN += 1;
+    }, 5000);
+  }
 }
 
 function scheduleRestart(delay){
@@ -713,7 +746,11 @@ function nextListen(){
   if (!dlgOn) { dlgPhase = 'idle'; return; }
   /* после фразы русского слушаем корейца и наоборот */
   dlgCurLang = (dlgCurLang === 'ru-RU') ? 'ko-KR' : 'ru-RU';
-  dlgListen();
+  /* WebKit 317741: на iOS аудиосессия микрофона не освобождается сразу
+     после speechSynthesis — перед перезапуском распознавания выдерживаем
+     9 с паузы (повышает шанс, что сессия «отпустится»). Android: 1 с. */
+  if (IS_IOS) setStatus('Секунду, включаю микрофон…', '');
+  scheduleRestart(IS_IOS ? 9000 : 1000);
 }
 
 function dlgStart(){
