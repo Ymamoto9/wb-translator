@@ -845,22 +845,33 @@ $('copy').addEventListener('click', function(){
 });
 
 // ---------- озвучка ----------
-// iOS Safari: синтез речи работает только после первого пользовательского
-// жеста — «разблокируем» пустой utterance на первое касание/клик
+// iOS Safari разрешает звук только после воспроизведения, запущенного
+// ПРЯМЫМ касанием. Поэтому при первом касании: возобновляем AudioContext,
+// проигрываем тихий wav-файл (разблокирует <audio>) и «прогреваем»
+// speechSynthesis. Дальше программные play() работают
 var ttsUnlocked = false;
+var gtAudioEl = null;   // постоянный разблокированный аудио-элемент
 function unlockTTS(){
-  if (NATIVE || ttsUnlocked || !('speechSynthesis' in window)) return;
+  if (NATIVE || ttsUnlocked || !SR && !('speechSynthesis' in window)) return;
   try{
-    speechSynthesis.getVoices();   // заодно прогреваем список голосов
+    speechSynthesis.getVoices();
     var u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0;
+    u.volume = 0.01;
     speechSynthesis.speak(u);
-    // заодно разблокируем Audio-элемент (для онлайн-голоса)
-    var a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
-    a.volume = 0;
-    var p = a.play(); if (p && p.catch) p.catch(function(){});
-    ttsUnlocked = true;
   }catch(e){}
+  try{
+    audioBeep = audioBeep || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioBeep.state === 'suspended') audioBeep.resume();
+  }catch(e){}
+  try{
+    if (!gtAudioEl){
+      gtAudioEl = new Audio('silent.wav');
+      gtAudioEl.volume = 0.01;
+      var p = gtAudioEl.play();
+      if (p && p.catch) p.catch(function(){});
+    }
+  }catch(e){}
+  ttsUnlocked = true;
 }
 document.addEventListener('touchstart', unlockTTS, {passive:true});
 document.addEventListener('click', unlockTTS, {passive:true});
@@ -899,8 +910,11 @@ function splitForTTS(text, max){
 function speakGT(text, lang, onend, onfail){
   try{
     speechSynthesis.cancel();
-    var a = new Audio('https://translate.google.com/translate_tts?ie=UTF-8' +
-      '&client=tw-ob&ttsspeed=1&tl=' + lang + '&q=' + encodeURIComponent(text));
+    var url = 'https://translate.google.com/translate_tts?ie=UTF-8' +
+      '&client=tw-ob&ttsspeed=1&tl=' + lang + '&q=' + encodeURIComponent(text);
+    var a;
+    if (gtAudioEl){ a = gtAudioEl; a.src = url; }   // разблокированный на iOS элемент
+    else a = new Audio(url);
     window._gtAudio = a;
     var done = false;
     var fin = function(){ if (!done){ done = true; if (onend) onend(); } };
@@ -976,6 +990,7 @@ var audioBeep = null;
 function tone(freq, dur, delay){
   try{
     audioBeep = audioBeep || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioBeep.state === 'suspended') audioBeep.resume();
     var o = audioBeep.createOscillator(), g = audioBeep.createGain();
     o.frequency.value = freq; o.type = 'sine';
     g.gain.value = 0.12;
@@ -1163,6 +1178,7 @@ function dlgOnListenError(msg, code){
 function dlgStart(){
   if (dialogMode) return;
   dialogMode = true;
+  unlockTTS();   // прямой жест: разблокировка звука для iOS
   dlgMisses = 0;
   dlgFlip = false;
   dlgLastSpeaker = null;      // новый диалог всегда начинаем с русского
@@ -1336,6 +1352,7 @@ if (NATIVE){
     };
 
     micBtn.addEventListener('click', function(){
+      unlockTTS();   // прямой жест: разблокировка звука для iOS
       if (dialogMode){ dlgListen(); return; }
       if (listening){
         // остановка: stop() + страховка abort() — иначе iOS может не остановиться
