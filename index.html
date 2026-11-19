@@ -184,11 +184,21 @@
     box-shadow:0 12px 44px rgba(0,0,0,.4);
     transition:background .25s;
   }
-  #holdBtn.hold{background:#1e9e50;}
+  #holdBtn.idle{background:#1e9e50;}
+  #holdBtn.rec{background:#1e9e50; animation:pulse 1s infinite;}
   #holdBtn.wait{background:#e8a200;}
   #holdBtn.listen{background:#2f6fdb;}
   #holdBtn .hold-ru{font-size:min(7vw, 30px); letter-spacing:1px;}
   #holdBtn .hold-ko{font-size:min(5.6vw, 24px); opacity:.9;}
+  #holdPartial{
+    min-height:26px; text-align:center; color:var(--fg); font-size:17px;
+    padding:0 24px 6px; word-break:break-word;
+  }
+  #holdLangBtn{
+    display:block; margin:0 auto 20px; border:1px solid var(--line); background:#fff;
+    color:var(--ink); border-radius:10px; padding:8px 16px; font-size:14px;
+    font-weight:700; cursor:pointer;
+  }
   #holdHint{text-align:center; color:var(--muted); font-size:13px; padding:0 24px 24px;}
   .h-item{
     background:var(--card); border:1px solid var(--line); border-radius:12px;
@@ -308,12 +318,14 @@
     </span>
   </div>
   <div class="hold-wrap">
-    <button id="holdBtn" class="hold listen">
-      <span class="hold-ru">СЛУШАЙТЕ</span>
-      <span class="hold-ko">들으세요</span>
+    <button id="holdBtn" class="holdBtn idle">
+      <span class="hold-ru">УДЕРЖИВАЙТЕ</span>
+      <span class="hold-ko">누르고 말하세요</span>
     </button>
   </div>
-  <div id="holdHint">Держите зелёную кнопку и говорите. Отпустите — перевод и озвучка. Синее — слушаем ответ.</div>
+  <div id="holdPartial"></div>
+  <button id="holdLangBtn">🌐 ЯЗЫК ЗАПИСИ: РУССКИЙ</button>
+  <div id="holdHint">Держите кнопку и говорите. Отпустите — перевод и озвучка. Жёлтое — кореец слушает. Синее — телефон говорит.</div>
 </div>
 
 <script>
@@ -342,7 +354,7 @@ var LANG = { ru:'РУССКИЙ', ko:'КОРЕЙСКИЙ' };
 var SHORT = { ru:'РУС', ko:'КОР' };
 var BCP  = { ru:'ru-RU', ko:'ko-KR' };
 var NATIVE = !!(window.AndroidBridge && window.AndroidBridge.startListen);
-var APP_VERSION = 'v2.5';   // не забывать обновлять при новых релизах
+var APP_VERSION = 'v2.6';   // не забывать обновлять при новых релизах
 $('verLabel').textContent = 'Переводчик RWB ' + APP_VERSION;
 
 // ---- инфо ----
@@ -1183,34 +1195,46 @@ function dlgSetState(kind, lang){
 }
 
 // ---------- полноэкранная кнопка «удерживай и говори» ----------
-var holdActive = false, holdLang = null;
+var holdActive = false, holdLang = 'ru', holdRecog = null;
+var holdLangAuto = true, holdRecLang = 'ru';   // auto = язык, противоположный последней фразе
 function setHold(state){
   var b = $('holdBtn');
   if (!b) return;
   b.className = 'holdBtn ' + state;
   var T = {
-    hold:   ['ГОВОРИТЕ', '말하세요'],
+    idle:   ['УДЕРЖИВАЙТЕ', '누르고 말하세요'],
+    rec:    ['ГОВОРИТЕ', '말하세요'],
     wait:   ['ОЖИДАЙТЕ', '기다리세요'],
     listen: ['СЛУШАЙТЕ', '들으세요']
   }[state];
   b.querySelector('.hold-ru').textContent = T[0];
   b.querySelector('.hold-ko').textContent = T[1];
 }
-function holdStart(){
-  if (!dialogMode || holdActive || busy) return;
+function holdPartialMsg(msg){
+  $('holdPartial').textContent = msg || '';
+}
+function setHoldLang(l){
+  holdLang = l;
+  $('holdLangBtn').textContent = '🌐 ЯЗЫК ЗАПИСИ: ' + (l === 'ru' ? 'РУССКИЙ' : 'КОРЕЙСКИЙ');
+}
+function holdBegin(){
+  if (!dialogMode || holdActive) return;
+  if (busy){ holdPartialMsg('Подождите — идёт перевод'); return; }
   unlockTTS();
   holdActive = true;
-  setHold('hold');
-  // язык записи: тот, на котором говорит держащий телефон
-  holdLang = dlgLastSpeaker ? (dlgLastSpeaker === 'ru' ? 'ko' : 'ru') : 'ru';
-  dlgMisses = 0;
+  input.value = ''; lastResult = '';
+  holdRecLang = dlgListenLang();   // авто: противоположный последнему говорившему
+  holdPartialMsg('СЛЫШУ…');
+  setHold('rec');
+  dlgMisses = 0; dlgErrStreak = 0;
   if (NATIVE){
     AndroidBridge.stopListen();
-    AndroidBridge.startListen(BCP[holdLang]);
+    AndroidBridge.startListen(BCP[holdRecLang]);
   } else {
     webStop();
-    var r = makeRecog(holdLang, true);
-    try{ r.lang = BCP[holdLang]; r.start(); dual[holdLang] = r; }catch(e){}
+    holdRecog = makeRecogHold(holdRecLang);
+    try{ holdRecog.lang = BCP[holdRecLang]; holdRecog.start(); }
+    catch(e){ holdActive = false; setHold('idle'); setStatus('Микрофон не запустился — попробуйте ещё раз', 'err'); }
   }
 }
 function holdRelease(){
@@ -1220,23 +1244,34 @@ function holdRelease(){
   if (NATIVE){
     AndroidBridge.stopListen();   // остановка → придёт финальный результат
   } else {
-    try{ if (dual[holdLang]) dual[holdLang].stop(); }catch(e){}
-    stopLang(holdLang);
+    try{ if (holdRecog) holdRecog.stop(); }catch(e){}
   }
-  // если результат не пришёл (слишком короткое нажатие) — вернуть слушать
+  // если финальный результат не пришёл за 2.5 с — вернуть готовность
   setTimeout(function(){
-    if (dialogMode && !holdActive && !busy && !listening && !finalizedFlag){
-      dlgListen();
+    if (dialogMode && !holdActive && !busy && !listening){
+      setHold('idle');
+      holdPartialMsg('');
     }
   }, 2500);
 }
-$('holdBtn').addEventListener('pointerdown', function(e){ e.preventDefault(); holdStart(); });
+$('holdBtn').addEventListener('pointerdown', function(e){ e.preventDefault(); holdBegin(); });
 $('holdBtn').addEventListener('pointerup', function(e){ e.preventDefault(); holdRelease(); });
 $('holdBtn').addEventListener('pointercancel', function(){ holdRelease(); });
-$('holdBtn').addEventListener('touchstart', function(e){ e.preventDefault(); holdStart(); }, {passive:false});
+$('holdBtn').addEventListener('touchstart', function(e){ e.preventDefault(); holdBegin(); }, {passive:false});
 $('holdBtn').addEventListener('touchend', function(e){ e.preventDefault(); holdRelease(); }, {passive:false});
 $('dlgMin').addEventListener('click', function(){ $('dlgFull').classList.add('hidden'); });
 $('dlgStop2').addEventListener('click', function(){ dlgStop(); $('dlgFull').classList.add('hidden'); $('dlgBtn').classList.remove('hidden'); $('dlgActive').classList.add('hidden'); });
+$('holdLangBtn').addEventListener('click', function(){
+  setHoldLang(holdLang === 'ru' ? 'ko' : 'ru');
+  holdPartialMsg('');
+  if (holdActive){   // пере-запуск записи на новом языке, если держали
+    holdActive = false;
+    if (NATIVE){ AndroidBridge.stopListen(); }
+    else { try{ if (holdRecog) holdRecog.abort(); }catch(e){} }
+    holdBegin();
+  }
+});
+setHoldLang('ru');
 
 function dlgListen(){
   if (!dialogMode) return;
@@ -1264,6 +1299,66 @@ function dlgListen(){
       if (dualBroken){ webStartSingle(); } else { webStart(); }
     }, IS_IOS ? 1000 : 250);
   }
+}
+
+// ---------- hold-распознавание и финал фразы в диалоге ----------
+// отдельный распознаватель для удержания кнопки: partial-текст выводится
+// прямо на экран, финал уходит в перевод с валидацией языка
+function makeRecogHold(l){
+  var r = new SR();
+  r.continuous = false;
+  r.interimResults = true;
+  r.maxAlternatives = 1;
+  r.onstart = function(){ listening = true; };
+  r.onresult = function(ev){
+    var finalTxt = '', interim = '';
+    for (var i = ev.resultIndex; i < ev.results.length; i++){
+      if (ev.results[i].isFinal) finalTxt += ev.results[i][0].transcript;
+      else interim += ev.results[i][0].transcript;
+    }
+    if (interim) holdPartialMsg('СЛЫШУ: ' + interim);
+    if (finalTxt && holdActive){
+      holdRelease();   // речь закончилась → жёлтое ОЖИДАЙТЕ
+      dlgDialogFinal(finalTxt, l, null);
+    }
+  };
+  r.onerror = function(ev){
+    var m = { 'not-allowed':'Нет доступа к микрофону — разрешите его в настройках',
+              'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
+    listening = false;
+    if (dialogMode){
+      holdActive = false;
+      setHold('idle');
+      holdPartialMsg((m[ev.error] || ('Ошибка: ' + ev.error)) + ' — попробуйте ещё раз');
+    }
+  };
+  r.onend = function(){ listening = false; };
+  return r;
+}
+
+// финальная фраза в диалоге: язык определяем по письменности текста
+// (хангыль = кореец, кириллица = русский), переводим, озвучиваем
+function dlgDialogFinal(text, recLang, conf){
+  input.value = text;
+  var letters = text.replace(/\s/g, '').length;
+  var hang = (text.match(/[가-힣]/g) || []).length;
+  var cyr = (text.match(/[а-яё]/gi) || []).length;
+  var det = detectLang(text);
+  var garbage = letters > 0 && det === null && (hang + cyr) < letters * 0.5;
+  if (dialogMode && typeof conf === 'number' && conf >= 0 && conf < 0.3) garbage = true;
+  if (garbage){
+    setHold('idle');
+    holdPartialMsg('Не удалось распознать речь — нажмите кнопку и говорите чётче');
+    return;
+  }
+  if (!det) det = recLang || holdLang;
+  dlgLastSpeaker = det;
+  dlgErrStreak = 0;
+  window._lastSpk = det;
+  var other = det === 'ru' ? 'ko' : 'ru';
+  setHold('wait');
+  dlgText.textContent = '⏳ Перевожу…';
+  dlgRun(text, det, other);
 }
 
 function dlgTranslate(text, forced, conf){
@@ -1298,12 +1393,17 @@ function dlgRun(text, sl, tl){
   busy = true;
   doTranslate(text, sl, tl, function(ok, out){
     if (!dialogMode) return;
-    if (!ok){ setTimeout(dlgListen, 2000); return; }
+    if (!ok){
+      setHold('idle');
+      holdPartialMsg('Ошибка перевода — нажмите кнопку и попробуйте ещё раз');
+      return;
+    }
     dlgSetState('speaking', tl);
-    beepSent();                      // перевод готов, озвучиваем
+    beepSent();
     speak(out, tl, function(){
       if (!dialogMode) return;
-      setTimeout(dlgListen, 600);
+      setHold('idle');
+      holdPartialMsg('');
     });
   });
 }
@@ -1317,47 +1417,9 @@ var dlgErrStreak = 0;
 function dlgOnListenError(msg, code, deadLang){
   listening = false;
   micBtn.classList.remove('rec');
-  var silence = (code === 1 || code === 'aborted');
-  var speechOtherLang = (code === 7 || code === 'no-speech');
-  if (dialogMode && speechOtherLang){
-    if (dlgExpect === 'auto'){
-      dlgFlip = true;
-      setStatus('Речь на другом языке — переключаюсь…', 'err');
-    } else {
-      setStatus('Речь не распознана — слушаю ' + LANG[dlgListenLang()], 'err');
-    }
-    dlgMisses = 0;
-    setTimeout(dlgListen, 1200);
-  } else if (dialogMode && silence){
-    // полная тишина: язык НЕ переключаем, просто слушаем дальше
-    setStatus('Тишина — слушаю…');
-    setTimeout(dlgListen, 1500);
-  } else if (dialogMode){
-    dlgErrStreak++;
-    setStatus(msg, 'err');
-    // iOS и некоторые браузеры не держат два потока распознавания —
-    // переходим на одиночный с быстрым переключением языка
-    if (code === 'service-not-allowed' || code === 'not-allowed' || code === 'audio-capture'){
-      dualBroken = true;
-    }
-    if (dualBroken){
-      webStop();
-      if (dlgExpect === 'auto') dlgFlip = true;
-      setTimeout(dlgListen, 1000);
-      return;
-    }
-    if (dlgErrStreak >= 4){
-      dlgErrStreak = 0;
-      setStatus('Распознавание не отвечает на языке ' + LANG[dlgListenLang()] +
-        '. Проверьте интернет и обновление приложения Google (Android)', 'err');
-    }
-    var dead = deadLang || dlgListenLang();
-    setTimeout(function(){
-      if (dialogMode && !dual[dead] && !listening){
-        var r2 = makeRecog(dead, true);
-        try{ r2.lang = BCP[dead]; r2.start(); dual[dead] = r2; }catch(e){}
-      }
-    }, 1500);
+  if (dialogMode){
+    setHold('idle');
+    holdPartialMsg((msg || 'Ошибка') + ' — нажмите кнопку и говорите');
   } else {
     setStatus(msg, 'err');
   }
@@ -1410,16 +1472,19 @@ window.appOpenMic = function(){
   AndroidBridge.startListen(BCP[dir.split('2')[0]]);
 };
 
-// язык прослушивания: АВТО / РУС / КОР — применяется мгновенно
+// язык прослушивания: АВТО / РУС / КОР — задает язык записи кнопки
 function setExp(v){
   dlgExpect = v;
   $('expAuto').classList.toggle('active', v === 'auto');
   $('expRu').classList.toggle('active', v === 'ru');
   $('expKo').classList.toggle('active', v === 'ko');
-  if (dialogMode){
-    dlgFlip = false;
-    dlgMisses = 0;
-    dlgListen();   // сразу перезапустить прослушивание с новым языком
+  if (v === 'auto'){
+    holdLangAuto = true;
+    holdPartialMsg('Язык записи: авто (определяется по кнопке)');
+  } else {
+    holdLangAuto = false;
+    setHoldLang(v);
+    holdPartialMsg('Язык записи: ' + LANG[v]);
   }
 }
 $('expAuto').addEventListener('click', function(){ setExp('auto'); });
@@ -1441,16 +1506,29 @@ if (NATIVE){
       setStatus('Говорите…');
     }
   };
-  window.onNativePartial = function(t){ input.value = t; };
+  window.onNativePartial = function(t){
+    if (dialogMode && holdActive){ holdPartialMsg('СЛЫШУ: ' + t); return; }
+    input.value = t;
+  };
   window.onNativeFinal = function(text, conf){
     listening = false;
     micBtn.classList.remove('rec');
-    if (dialogMode){ dlgTranslate(text, null, conf); return; }
+    if (dialogMode){
+      holdRelease();
+      dlgDialogFinal(text, holdRecLang, conf);
+      return;
+    }
     input.value = text;
     clearTimeout(trTimer);
     if ($('autoTr').checked) translateNow();
   };
   window.onNativeError = function(msg, code){
+    if (dialogMode){
+      holdActive = false;
+      setHold('idle');
+      holdPartialMsg(msg + ' — нажмите кнопку и говорите');
+      return;
+    }
     dlgOnListenError(msg, code, dlgListenLang());
   };
 } else {
