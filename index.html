@@ -101,7 +101,7 @@
 <body>
 <header>
   <h1>Переводчик RWB</h1>
-  <span id="verBadge">v4.2 · фикс рестарта</span>
+  <span id="verBadge">v4.3 · iOS/Android</span>
 </header>
 
 <div id="status">Нажмите микрофон, чтобы начать диалог</div>
@@ -221,6 +221,15 @@ var ruVoice = null;          // мужской русский голос
 var koVoice = null;          // женский корейский голос
 var voicesReady = false;
 var micWarm = false;         // разрешение на микрофон уже запрошено
+/* --- платформа (различия Android vs iPhone) --- */
+var IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+var IS_ANDROID = /Android/.test(navigator.userAgent);
+var voiceRetryN = 0;         // повторы догрузки списка голосов (iOS отдаёт асинхронно)
+var ruHasAny = false;        // есть ли ХОТЬ какой-то русский голос
+var koHasAny = false;        // есть ли хоть какой-то корейский голос
+var ttsWarnedRu = false;     // одноразовые предупреждения «озвучка недоступна»
+var ttsWarnedKo = false;
 
 /* =================== UI =================== */
 function $(id){ return document.getElementById(id); }
@@ -451,21 +460,60 @@ function pickVoice(lang, malePrefs, femalePrefs){
   var prefs = (lang === 'ru') ? malePrefs : femalePrefs;
   for (var p = 0; p < prefs.length; p++){
     for (var v = 0; v < pool.length; v++){
-      if (pool[v].name.indexOf(prefs[p]) !== -1) return pool[v];
+      if (pool[v].name.indexOf(prefs[p]) !== -1){
+        pool[v]._pref = true;                 // голос нужного пола найден
+        return pool[v];
+      }
     }
   }
-  return pool.length ? pool[0] : null;
+  return pool.length ? pool[0] : null;        // fallback: любой голос языка
+}
+
+function warnNoTTS(lang){
+  /* голосов для языка нет ВОВСЕ — не молчим: текст перевода уже на экране,
+     объясняем, где включить/скачать голоса на этой платформе */
+  var isRu = (lang === 'ru');
+  if (isRu ? ttsWarnedRu : ttsWarnedKo) return;
+  if (isRu) ttsWarnedRu = true; else ttsWarnedKo = true;
+  var how;
+  if (IS_IOS){
+    how = 'На iPhone: Настройки → Универсальный доступ → Устный контент → Голоса — скачайте нужный голос.';
+  } else if (IS_ANDROID){
+    how = 'На Android: Настройки → Система → Языки и ввод → Синтез речи → Google TTS → установите голоса.';
+  } else {
+    how = 'На этом устройстве нет подходящего голоса синтеза речи.';
+  }
+  addBubble(isRu ? 'logRu' : 'logKo', '⚠ Озвучка недоступна на этом устройстве. ' + how, null);
+}
+
+function countVoices(lang){
+  var vs = speechSynthesis.getVoices();
+  var n = 0;
+  for (var i = 0; i < vs.length; i++){
+    if (vs[i].lang && vs[i].lang.toLowerCase().indexOf(lang) === 0) n += 1;
+  }
+  return n;
 }
 
 function loadVoices(){
   var vs = speechSynthesis.getVoices();
-  if (!vs.length){ speechSynthesis.onvoiceschanged = loadVoices; return; }
-  // русский мужской: Pavel/Artemiy/Dmitry (Win), Google русский; fallback — любой ru
+  if (!vs.length){
+    /* iOS отдаёт список голосов асинхронно и не всегда шлёт voiceschanged —
+       добираем повторами с задержкой, а не только по событию */
+    if (voiceRetryN++ < 20) setTimeout(loadVoices, 500);
+    return;
+  }
+  // русский мужской: Pavel/Artemiy/Dmitry (Win), Google русский; иначе любой ru
   ruVoice = pickVoice('ru', ['Pavel','Artemiy','Dmitry','Google русский','Milena','Tatyana'], []);
-  // корейский женский: Yuna/SunHi (Win/Edge), Heami, Google 한국어; fallback — любой ko.
+  // корейский женский: Yuna/SunHi (Win/Edge), Heami, Google 한국어; иначе любой ko.
   // ko-KP в списке голосов не бывает — ищем по префиксу 'ko' (covers ko-KR).
   koVoice = pickVoice('ko', [], ['Yuna','SunHi','Heami','Google 한국어','Sora']);
+  ruHasAny = countVoices('ru') > 0;
+  koHasAny = countVoices('ko') > 0;
   voicesReady = true;
+  // пол не совпал — работаем с любым голосом языка (не молчим)
+  if (ruVoice && !ruVoice._pref) console.warn('Голос male для ru не найден. Использую доступный.');
+  if (koVoice && !koVoice._pref) console.warn('Голос female для ko не найден. Использую доступный.');
 }
 
 function stopSpeaking(){
@@ -483,6 +531,14 @@ function speak(text, lang, onDone){
   curUtter = u;                       // держим глобально: GC может убить onend
   u.lang = (lang === 'ru') ? 'ru-RU' : 'ko-KR'; // ko-KP браузерные движки не дают
   var v = (lang === 'ru') ? ruVoice : koVoice;
+  if (!v){
+    loadVoices();                     // голоса могли доехать асинхронно после старта
+    v = (lang === 'ru') ? ruVoice : koVoice;
+  }
+  if (!v){
+    console.warn('Голос для ' + lang + ' не найден. Использую системный по умолчанию.');
+    if (!((lang === 'ru') ? ruHasAny : koHasAny)) warnNoTTS(lang);
+  }
   if (v) u.voice = v;
   u.rate = 0.95;
   var finished = false;
@@ -532,7 +588,9 @@ function dlgListen(){
   webStop();
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR){
-    showErr('Браузер не поддерживает распознавание речи. Откройте в Chrome или Safari.');
+    showErr(IS_IOS
+      ? 'На iPhone распознавание речи работает в Safari. Откройте сайт в Safari и проверьте: Настройки → Siri и Поиск → включено ли «Распознавание речи».'
+      : 'Браузер не поддерживает распознавание речи. Откройте в Chrome или Safari.');
     return;
   }
   recog = new SR();
@@ -558,7 +616,9 @@ function dlgListen(){
     if (ev.error === 'aborted' || ev.error === 'no-speech') return; // не ошибки
     _dlgErrAt = Date.now();
     if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
-      showErr('Микрофон запрещён. Разрешите доступ к микрофону в настройках браузера.');
+      showErr(IS_IOS
+        ? 'Микрофон запрещён. Разрешите доступ: Настройки → Safari → Микрофон, и при запросе в Safari нажмите «Разрешить».'
+        : 'Микрофон запрещён. Разрешите доступ к микрофону в настройках браузера.');
       dlgOn = false;
       $('micBtn').classList.remove('on');
       $('micBtn').textContent = '🎤';
