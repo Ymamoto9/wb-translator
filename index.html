@@ -1,1523 +1,671 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="theme-color" content="#481173">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#0b2545">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Переводчик">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
-<title>Переводчик РУ ⇄ КОР</title>
+<title>Переводчик RWB · РУС ⇄ КОР</title>
 <style>
-  :root{
-    --wb-purple:#481173; --wb-pink:#cb11ab; --wb-grad:linear-gradient(135deg,#481173 0%,#cb11ab 100%);
-    --bg:#f6f5f8; --card:#ffffff; --ink:#1e0a3c; --muted:#8a8798;
-    --line:#e9e3f1; --ok:#12b558; --danger:#e02020; --amber:#f5a623;
-  }
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{height:100%;}
+  :root{ --bg:#0b2545; --panel:#13233b; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
   body{
-    margin:0; background:var(--bg); color:var(--ink);
-    font:16px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;
-    display:flex; flex-direction:column; height:100dvh; overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#0e1a2b; color:#e8eef7; min-height:100vh;
+    display:flex; flex-direction:column; align-items:stretch;
   }
   header{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:12px 14px; background:var(--wb-grad);
-    box-shadow:0 2px 8px rgba(72,17,115,.35);
+    padding:10px 12px; display:flex; align-items:center; justify-content:space-between;
+    background:#0b2545; border-bottom:1px solid #1e3a5f;
   }
-  .hdr-left{display:flex; align-items:center; gap:10px;}
-  .wb-logo{
-    background:#fff; color:var(--wb-purple); font-weight:900; font-size:13px;
-    border-radius:8px; padding:3px 7px; letter-spacing:.5px;
+  header h1{ font-size:16px; font-weight:700; letter-spacing:.3px; }
+  #verBadge{ font-size:11px; background:#1e3a5f; color:#9fc3f0; padding:2px 8px; border-radius:10px; }
+  /* ---------- статус-плашка ---------- */
+  #status{
+    margin:10px 12px 0; padding:14px 10px; border-radius:12px; text-align:center;
+    font-size:18px; font-weight:700; min-height:52px;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:#1e3a5f; color:#cfe3ff; transition:background .2s;
   }
-  .chip{
-    font-weight:800; font-size:15px; letter-spacing:1px; color:#fff;
-    background:rgba(255,255,255,.18); border-radius:10px; padding:5px 12px;
+  #status.listen{ background:#14532d; color:#bbf7d0; }   /* зелёная — СЛУШАЮ */
+  #status.think{  background:#713f12; color:#fde68a; }   /* жёлтая — ДУМАЮ */
+  #status.speak{  background:#831843; color:#fbcfe8; }   /* розовая — ОЗВУЧИВАЮ */
+  #status.err{    background:#7f1d1d; color:#fecaca; }   /* красная — ошибка, КРУПНО */
+  /* ---------- панели ---------- */
+  #panels{ display:flex; gap:8px; padding:10px 12px; flex:1; }
+  .panel{
+    flex:1; background:#13233b; border:1px solid #1e3a5f; border-radius:12px;
+    display:flex; flex-direction:column; min-height:180px; overflow:hidden;
   }
-  .chip-b{opacity:.75;}
-  #swap{
-    background:#fff; color:var(--wb-purple); border:none;
-    border-radius:10px; font-size:18px; padding:5px 12px; cursor:pointer; font-weight:800;
+  .panel h2{
+    font-size:13px; padding:8px 10px; background:#0b2545; color:#9fc3f0;
+    display:flex; justify-content:space-between; align-items:center;
   }
-  #swap:active{background:#f3e8fb;}
-  #swap:disabled{opacity:.5;}
-  #infoBtn{
-    background:rgba(255,255,255,.2); border:none; color:#fff;
-    width:30px; height:30px; border-radius:50%; font-size:15px; font-weight:800;
-    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  .panel .log{ flex:1; padding:8px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+  .bubble{
+    background:#1c3355; border-radius:10px; padding:8px 10px; font-size:15px;
+    line-height:1.35; word-wrap:break-word; max-width:95%;
   }
-  #infoBtn:active{background:rgba(255,255,255,.35);}
-
-  main{flex:1; display:flex; flex-direction:column; min-height:0; padding:10px; gap:10px;}
-
-  /* ---- режим диалога ---- */
-  #dlgBtn{
-    width:100%; border:none; cursor:pointer; color:#fff;
-    background:var(--wb-grad); border-radius:14px;
-    padding:14px; font-size:16px; font-weight:800; letter-spacing:.3px;
-    box-shadow:0 3px 10px rgba(203,17,171,.35);
+  .bubble.last{ background:#2563eb; color:#fff; }
+  .bubble .src{ font-size:11px; opacity:.7; display:block; margin-bottom:2px; }
+  .panel .foot{ padding:8px; border-top:1px solid #1e3a5f; display:flex; justify-content:flex-end; }
+  .rbtn{
+    background:#1e3a5f; color:#cfe3ff; border:0; border-radius:8px;
+    padding:8px 14px; font-size:14px;
   }
-  #dlgBtn:active{filter:brightness(1.08);}
-  #dlgBtn:disabled{opacity:.5; box-shadow:none;}
-  #dlgActive{
-    background:var(--card); border:2px solid var(--wb-pink); border-radius:14px;
-    padding:14px; display:flex; flex-direction:column; gap:12px;
+  .rbtn:active{ background:#2b4d7e; }
+  /* ---------- микрофон ---------- */
+  #micwrap{ display:flex; justify-content:center; padding:6px 0 16px; }
+  #micBtn{
+    width:88px; height:88px; border-radius:50%; border:3px solid #3b82f6;
+    background:#1d4ed8; color:#fff; font-size:40px; cursor:pointer;
+    box-shadow:0 4px 18px rgba(0,0,0,.45);
   }
-  .hidden{display:none !important;}
-  .dlg-state{display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px;}
-  .dlg-banner{
-    display:flex; align-items:center; gap:10px;
-    border-radius:12px; padding:14px 12px;
-    font-weight:900; font-size:19px; letter-spacing:.3px;
-    border:2px solid var(--line); background:#f2f0f5; color:var(--ink);
-  }
-  .dlg-banner.listening{background:#e8f9ef; border-color:var(--ok); color:#0b7a3e;}
-  .dlg-banner.translating{background:#fff6e5; border-color:var(--amber); color:#8a5a00;}
-  .dlg-banner.speaking{background:#fdeafa; border-color:var(--wb-pink); color:#8a1160;}
-  #dlgSwitch{
-    margin-left:auto; flex-shrink:0;
-    border:2px solid currentColor; background:#fff; color:inherit;
-    border-radius:9px; padding:8px 10px; font-size:13px; font-weight:800; cursor:pointer; white-space:nowrap;
-  }
-  #dlgSwitch:active{background:rgba(0,0,0,.06);}
-  #dlgRepeat{
-    border:2px solid var(--wb-pink); background:#fff; color:var(--wb-pink);
-    border-radius:10px; padding:12px; font-size:16px; font-weight:800; cursor:pointer;
-  }
-  #dlgRepeat:disabled{opacity:.45;}
-  #dlgRepeat:active{background:#fdf0fa;}
-  .dot{width:14px; height:14px; border-radius:50%; background:var(--muted); flex-shrink:0;}
-  .dot.listening{background:var(--ok); animation:pulse 1.1s infinite;}
-  .dot.translating{background:var(--amber); animation:pulse .7s infinite;}
-  .dot.speaking{background:var(--wb-pink); animation:pulse .9s infinite;}
-  .dot.idle{background:var(--muted);}
-  @keyframes pulse{50%{opacity:.35;}}
-  #dlgStop{
-    border:2px solid var(--danger); background:#fff; color:var(--danger);
-    border-radius:10px; padding:10px; font-size:15px; font-weight:800; cursor:pointer;
-  }
-  #dlgStop:active{background:#fdeaea;}
-  .dlg-row{display:flex; align-items:center; gap:6px;}
-  .dlg-label{font-size:13px; color:var(--muted); font-weight:700;}
-  .seg{
-    flex:1; border:1px solid var(--line); background:#fff; color:var(--muted);
-    border-radius:8px; padding:8px 4px; font-weight:800; font-size:13px; cursor:pointer;
-  }
-  .seg.active{background:var(--wb-grad); color:#fff; border-color:transparent;}
-
-  .panel{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px;}
-  .panel .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
-  .tag{font-size:12px; font-weight:800; color:var(--wb-purple); letter-spacing:1px;}
-
-  #input{
-    width:100%; min-height:72px; resize:none; border:none; outline:none;
-    background:transparent; color:var(--ink); font-size:19px; line-height:1.4;
-  }
-  #input::placeholder{color:#b3aec2;}
-
-  #output{font-size:21px; line-height:1.45; min-height:72px; word-break:break-word; white-space:pre-wrap;}
-  #output.empty{color:#b3aec2;}
-  #roman{
-    font-size:14px; color:var(--muted); font-style:italic; margin-top:8px;
-    word-break:break-word; border-top:1px solid var(--line); padding-top:6px;
-  }
-
-  .row{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;}
-  button.act{
-    background:#f4eef8; border:1px solid var(--line); color:var(--ink);
-    border-radius:10px; padding:10px 14px; font-size:15px; cursor:pointer; font-weight:600;
-  }
-  button.act:active{background:#eadff3;}
-  button.primary{
-    color:#fff; border:none; font-weight:800;
-    background:var(--wb-grad);
-  }
-  button.primary:active{filter:brightness(1.08);}
-  button.mic{
-    background:var(--wb-grad); border:none; color:#fff;
-    border-radius:50%; width:54px; height:54px; font-size:24px; flex-shrink:0;
-    display:flex; align-items:center; justify-content:center;
-    box-shadow:0 3px 10px rgba(203,17,171,.35);
-  }
-  button.mic.rec{background:var(--danger); animation:pulse 1s infinite;}
-  button.mic:disabled{opacity:.4; box-shadow:none;}
-
-  .toggles{display:flex; gap:14px; align-items:center; font-size:14px; color:var(--muted);}
-  .toggles label{display:flex; gap:6px; align-items:center; cursor:pointer;}
-  .toggles input{accent-color:var(--wb-pink);}
-
-  #status{min-height:18px; font-size:13px; color:var(--muted); padding:0 4px;}
-  #status.err{color:var(--danger);}
-  #status.ok{color:var(--ok);}
-
-  #history{flex:1; overflow-y:auto; min-height:60px; display:flex; flex-direction:column; gap:8px;}
-  .msg{
-    background:var(--card); border:1px solid var(--line); border-radius:14px;
-    padding:8px 12px; max-width:92%;
-  }
-  .msg.me{align-self:flex-end; border-radius:14px 14px 4px 14px;}
-  .msg.them{align-self:flex-start; border-radius:14px 14px 14px 4px; background:#f4eef8;}
-  .msg .who{font-size:11px; font-weight:800; letter-spacing:.5px; color:var(--wb-purple);}
-  .msg.them .who{color:var(--wb-pink);}
-  .msg .orig{font-size:14px; color:var(--muted); margin-top:2px; word-break:break-word;}
-  .msg .dst{font-size:16px; font-weight:600; margin-top:4px; word-break:break-word;}
-  .hist-head{display:flex; align-items:center; justify-content:space-between; padding:0 2px;}
-  .hist-head span{font-size:12px; font-weight:800; color:var(--muted); letter-spacing:1px;}
-  #chatExpand{
-    border:1px solid var(--line); background:#fff; color:var(--ink);
-    border-radius:8px; padding:4px 10px; font-size:13px; font-weight:700; cursor:pointer;
-  }
-  #chatExpand:active{background:#eadff3;}
-  #chatFull{position:fixed; inset:0; background:var(--bg); z-index:60; display:flex; flex-direction:column;}
-  #chatFull .cf-head{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:12px 14px; background:var(--wb-grad); color:#fff; font-weight:800; font-size:16px;
-  }
-  #chatClose{
-    background:rgba(255,255,255,.2); border:none; color:#fff;
-    border-radius:8px; padding:6px 14px; font-weight:800; font-size:14px; cursor:pointer;
-  }
-  #chatClose:active{background:rgba(255,255,255,.35);}
-  #chatFullList{flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:10px;}
-  #chatFullList .msg{max-width:96%;}
-  .h-item{
-    background:var(--card); border:1px solid var(--line); border-radius:12px;
-    padding:8px 10px; font-size:15px; cursor:pointer;
-  }
-  .h-item:active{background:#f8f2fc;}
-  .h-dir{font-size:11px; font-weight:800; color:var(--wb-pink); letter-spacing:.5px;}
-  .h-src{color:var(--muted); font-size:13px; margin:2px 0;}
-  .h-dst{font-size:15px;}
-  .h-empty{color:#b3aec2; font-size:14px; text-align:center; padding:12px;}
-
-  footer{
-    padding:6px 10px calc(6px + env(safe-area-inset-bottom));
-    font-size:11px; color:#b3aec2; text-align:center;
-  }
-
-  /* ---- инфо-модалка ---- */
-  .modal{
-    position:fixed; inset:0; background:rgba(30,10,60,.55);
-    display:flex; align-items:center; justify-content:center; z-index:50; padding:20px;
-  }
-  .modal-card{
-    background:#fff; border-radius:18px; padding:20px; max-width:340px; width:100%;
-    box-shadow:0 10px 40px rgba(30,10,60,.4);
-  }
-  .modal-title{
-    font-weight:900; font-size:18px; margin-bottom:12px; color:var(--wb-purple);
-  }
-  .modal-card p{font-size:15px; line-height:1.6; margin:0 0 16px;}
-  #infoClose{
-    width:100%; border:none; cursor:pointer; color:#fff;
-    background:var(--wb-grad); border-radius:10px; padding:12px;
-    font-size:15px; font-weight:800;
-  }
+  #micBtn.on{ background:#dc2626; border-color:#f87171; } /* красный = нажми, чтобы СТОП */
+  #micBtn:disabled{ opacity:.45; }
 </style>
 </head>
 <body>
-
 <header>
-  <div class="hdr-left">
-    <span class="wb-logo">RWB</span>
-    <span class="chip" id="langFrom">РУС</span>
-    <button id="swap" title="Поменять языки">⇄</button>
-    <span class="chip chip-b" id="langTo">КОР</span>
-    <span id="verBadge" style="opacity:.55; font-size:11px; font-weight:700; margin-left:6px;">v3.4</span>
-  </div>
-  <button id="infoBtn" title="О программе">ⓘ</button>
+  <h1>Переводчик RWB</h1>
+  <span id="verBadge">v4.0 · сборка с нуля</span>
 </header>
 
-<main>
-  <button id="dlgBtn">💬 Режим диалога — включить</button>
+<div id="status">Нажмите микрофон, чтобы начать диалог</div>
 
-  <div id="dlgActive" class="hidden">
-    <div class="dlg-banner idle" id="dlgBanner"><span class="dot idle" id="dlgDot"></span><span id="dlgText">Готов</span><button id="dlgSwitch">🔁 КОР ⇄ РУС</button></div>
-    <div class="dlg-row">
-      <span class="dlg-label">Слушать:</span>
-      <button class="seg active" id="expAuto">АВТО</button>
-      <button class="seg" id="expRu">РУС</button>
-      <button class="seg" id="expKo">КОР</button>
-    </div>
-    <button id="dlgRepeat" disabled>🔊 Повторить последнюю фразу</button>
-    <button id="dlgStop">■ Остановить диалог</button>
+<div id="panels">
+  <div class="panel">
+    <h2>РУССКИЙ <span style="font-weight:400">администрация</span></h2>
+    <div class="log" id="logRu"></div>
+    <div class="foot"><button class="rbtn" id="repRu">🔊 Повторить</button></div>
   </div>
-
-  <section class="panel">
-    <div class="top"><span class="tag" id="tagIn">РУССКИЙ</span>
-      <div class="toggles">
-        <label><input type="checkbox" id="autoTr" checked>авто</label>
-        <label><input type="checkbox" id="autoSpeak" checked>озвучка</label>
-      </div>
-    </div>
-    <textarea id="input" placeholder="Введите текст или нажмите микрофон…" enterkeyhint="send"></textarea>
-    <div class="row">
-      <button class="mic" id="mic" title="Голосовой ввод">🎤</button>
-      <button class="act primary" id="go" style="flex:1">Перевести</button>
-      <button class="act" id="clear" title="Очистить">✕</button>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="top"><span class="tag" id="tagOut">КОРЕЙСКИЙ</span></div>
-    <div id="output" class="empty">…</div>
-    <div id="roman" class="hidden"></div>
-    <div class="row">
-      <button class="act" id="speak" style="flex:1">🔊 Озвучить</button>
-      <button class="act" id="copy">📋 Копировать</button>
-    </div>
-  </section>
-
-  <div id="status"></div>
-
-  <div class="hist-head"><span>💬 ЧАТ ДИАЛОГА</span><button id="chatExpand">⛶ Развернуть</button></div>
-  <div id="history"><div class="h-empty">История пуста</div></div>
-</main>
-
-<footer>Нужен интернет (перевод и голос). Озвучка работает офлайн.</footer>
-
-<div id="infoModal" class="modal hidden">
-  <div class="modal-card">
-    <div class="modal-title">О программе</div>
-    <p>Программа разработана <b>Бондарюк Даниил Романович</b>.<br>
-    Тренер СК Владивосток.<br><br>
-    <b>Распространение запрещено.</b></p>
-    <button id="infoClose">Закрыть</button>
+  <div class="panel">
+    <h2>한국어 (조선말) <span style="font-weight:400">근로자</span></h2>
+    <div class="log" id="logKo"></div>
+    <div class="foot"><button class="rbtn" id="repKo">🔊 반복</button></div>
   </div>
 </div>
 
-<div id="chatFull" class="hidden">
-  <div class="cf-head"><span>💬 Чат диалога</span><button id="chatClose">✕ Закрыть</button></div>
-  <div id="chatFullList"></div>
-</div>
+<div id="micwrap"><button id="micBtn" title="Говорить / Стоп">🎤</button></div>
 
 <script>
-'use strict';
-var $ = function(id){ return document.getElementById(id); };
-var input = $('input'), output = $('output'), statusEl = $('status');
-var micBtn = $('mic'), goBtn = $('go');
-var ru = 'ru', ko = 'ko';
-var dir = ru + '2' + ko;               // текущее направление
-var busy = false, trTimer = null, lastResult = '';
-var dialogLog = [];
-var listening = false;
-var dialogMode = false;
-var dlgExpect = 'auto';        // 'auto' | 'ru' | 'ko' — кого слушаем
-var dlgLastSpeaker = null;     // кто говорил последний раз
-var dlgMisses = 0;             // подряд неудачных прослушек
-var dlgFlip = false;           // принудительно сменить язык прослушивания
-var dlgCurLang = null;         // текущий язык прослушивания диалога (web)
-var lastSpoken = null;         // последняя озвученная фраза диалога {text, lang} — для 🔁 повтор
-var IS_IOS = /iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent) ||
-             (navigator.userAgent.indexOf('Mac') > -1 && 'ontouchend' in document);
-var recog = null;
-var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-var recogReset = null, makeRecog = null, webStop = null, webStart = null;   // назначаются в браузерной ветке ниже
+/* ================================================================
+ * ПЕРЕВОДЧИК RWB — сборка с нуля (one-shot), vanilla JS, 1 файл.
+ * Никаких LLM API: только бесплатные MT-эндпоинты.
+ * Все глобальные переменные объявлены var — strict mode не убьёт скрипт.
+ * ================================================================ */
 
-var LANG = { ru:'РУССКИЙ', ko:'КОРЕЙСКИЙ' };
-var SHORT = { ru:'РУС', ko:'КОР' };
-var BCP  = { ru:'ru-RU', ko:'ko-KR' };
-var NATIVE = !!(window.AndroidBridge && window.AndroidBridge.startListen);
+/* ---------- КОНФИГ API (править здесь) ---------- */
+var API_CONFIG = {
+  // DeepLX: адрес СВОЕГО Cloudflare Worker с DeepLX (бесплатный, без ключа).
+  // Пустая строка = шаг пропускается и идём сразу на MyMemory.
+  // Пример: 'https://my-worker.name.workers.dev/translate'
+  deeplxUrl: '',
 
-// ---- инфо ----
-$('infoBtn').addEventListener('click', function(){ $('infoModal').classList.remove('hidden'); });
-$('infoClose').addEventListener('click', function(){ $('infoModal').classList.add('hidden'); });
-$('infoModal').addEventListener('click', function(e){ if (e.target === this) this.classList.add('hidden'); });
+  // MyMemory: анонимный, ~5000 символов/день без ключа. CORS разрешён.
+  mymemoryUrl: 'https://api.mymemory.translated.net/get',
 
-function setDir(a, b){
-  dir = a + '2' + b;
-  $('langFrom').textContent = SHORT[a];
-  $('langFrom').classList.remove('chip-b');
-  $('langTo').textContent = SHORT[b];
-  $('langTo').classList.add('chip-b');
-  $('tagIn').textContent  = LANG[a];
-  $('tagOut').textContent = LANG[b];
-}
-setDir(ru, ko);
+  // Google gtx (неофициальный, бесплатный, без ключа; CORS открыт).
+  // Запасной вариант, если MyMemory исчерпал дневной лимит.
+  gtxUrl: 'https://translate.googleapis.com/translate_a/single',
 
-$('swap').addEventListener('click', function(){
-  if (dialogMode) return;
-  var a = dir.split('2')[0], b = dir.split('2')[1];
-  if (listening && NATIVE) AndroidBridge.stopListen();
-  // при смене направления переносим готовый перевод в поле ввода
-  if (lastResult) {
-    input.value = lastResult;
-    output.textContent = input.value ? '' : '…';
-    if (!input.value) output.classList.add('empty');
-    lastResult = '';
-  }
-  setDir(b, a);
-  if (input.value.trim()) translateNow();
-});
-
-// ---------- складской глоссарий (RU ⇄ KO) ----------
-// [варианты написания, точный корейский/русский перевод]
-// Аббревиатуры и рабочие термины склада WB — переводятся строго по словарю.
-var GLOSS_RU = [
-  [['тсд','терминал сбора данных'], '단말기(PDA)'],
-  [['кгт','крупногабаритный товар','крупно-габаритный товар'], '대형 상품'],
-  [['мгт','мелкогабаритный товар','мелко-габаритный товар'], '소형 상품'],
-  [['рц','распределительный центр'], '물류센터'],
-  [['ттн','накладная','товарно-транспортная накладная'], '운송장'],
-  [['прр','погрузочно-разгрузочные работы'], '하역 작업'],
-  [['сг','срок годности'], '유통기한'],
-  [['км','код маркировки'], '마킹 코드'],
-  [['честный знак'], '체스니 즈나크(마킹 시스템)'],
-  [['монопаллета'], '모노팔레트'],
-  [['паллета','поддон'], '팔레트'],
-  [['короб','коробка'], '박스'],
-  [['стеллаж'], '선반(랙)'],
-  [['ячейка'], '셀'],
-  [['приёмка','приемка','приём товара','прием товара'], '입고'],
-  [['отгрузка'], '출고'],
-  [['сортировка'], '분류'],
-  [['сортировочный центр'], '소터센터'],
-  [['транзит'], '트랜짓'],
-  [['брак','бракованный товар'], '불량품'],
-  [['пересорт'], '오분류(재분류)'],
-  [['недовоз','недоставленный товар'], '미도착 상품'],
-  [['комплектация','пикинг','пicking'], '피킹'],
-  [['комплектовщик','пикер'], '피커'],
-  [['инвентаризация','пересчёт','пересчет'], '재고 조사'],
-  [['смена','рабочая смена'], '교대(근무조)'],
-  [['начальник смены'], '교대 관리자(조장)'],
-  [['супервайзер'], '수퍼바이저'],
-  [['бригадир'], '반장'],
-  [['кладовщик'], '창고 관리자'],
-  [['поставщик'], '공급업체'],
-  [['разгрузка'], '하역'],
-  [['погрузка'], '상차'],
-  [['фура','грузовик','машина'], '트럭'],
-  [['рохля','гидравлическая тележка'], '핸드팔레트트럭(수레)'],
-  [['электротележка','электрическая тележка'], '전동수레'],
-  [['весы'], '저울'],
-  [['штрих-код','штрихкод'], '바코드'],
-  [['этикетка'], '라벨'],
-  [['маркировка'], '마킹'],
-  [['сканер'], '스캐너'],
-  [['сканирование'], '스캔'],
-  [['планёрка','планерка','брифинг'], '브리핑'],
-  [['обед','обеденный перерыв'], '점심시간'],
-  [['перерыв'], '휴식시간'],
-  [['зарплата','зп'], '급여'],
-  [['аванс'], '선급금'],
-  [['премия'], '상여금'],
-  [['штраф'], '벌금'],
-  [['опоздание'], '지각'],
-  [['прогул'], '결근'],
-  [['больничный','больничный лист'], '병가'],
-  [['отпуск'], '휴가'],
-  [['медосмотр','медицинский осмотр'], '건강검진'],
-  [['инструктаж','техника безопасности','тб'], '안전교육'],
-  [['каска','защитная каска'], '안전모'],
-  [['жилет','сигнальный жилет'], '안전조끼'],
-  [['пропуск'], '출입증'],
-  [['браслет'], '출입용 팔찌'],
-  [['склад'], '창고'],
-  [['товар'], '상품'],
-  [['груз'], '화물'],
-  [['логистика'], '물류'],
-  [['водитель'], '운전기사'],
-  [['акт','акт приёмки','акт приемки'], '입고 확인서'],
-  [['заявка'], '요청서'],
-  [['график','график работы'], '근무표'],
-  [['переработка','сверхурочные'], '초과근무'],
-  [['униформа','спецодежда'], '작업복'],
-  [['плёнка','пленка','стрейч-плёнка','стрейч пленка'], '스트레치 필름'],
-  [['скотч'], '테이프']
-];
-var GLOSS_KO = [
-  [['단말기','티에스디'], 'ТСД'],
-  [['대형 상품'], 'КГТ'],
-  [['소형 상품'], 'МГТ'],
-  [['물류센터'], 'РЦ'],
-  [['운송장'], 'ТТН'],
-  [['유통기한'], 'срок годности'],
-  [['마킹 코드'], 'код маркировки'],
-  [['모노팔레트'], 'монопаллета'],
-  [['팔레트'], 'паллета'],
-  [['박스'], 'короб'],
-  [['선반'], 'стеллаж'],
-  [['셀'], 'ячейка'],
-  [['입고'], 'приёмка'],
-  [['출고'], 'отгрузка'],
-  [['분류'], 'сортировка'],
-  [['소터센터'], 'сортировочный центр'],
-  [['트랜짓'], 'транзит'],
-  [['불량품','불량'], 'брак'],
-  [['오분류'], 'пересорт'],
-  [['피킹'], 'комплектация'],
-  [['피커'], 'комплектовщик'],
-  [['재고 조사','재고조사'], 'инвентаризация'],
-  [['교대'], 'смена'],
-  [['조장','교대장'], 'начальник смены'],
-  [['수퍼바이저'], 'супервайзер'],
-  [['창고 관리자','창고관리자'], 'кладовщик'],
-  [['공급업체'], 'поставщик'],
-  [['하역'], 'разгрузка'],
-  [['상차'], 'погрузка'],
-  [['트럭'], 'фура (машина)'],
-  [['핸드팔레트트럭'], 'рохля (гидравлическая тележка)'],
-  [['전동수레'], 'электротележка'],
-  [['저울'], 'весы'],
-  [['바코드'], 'штрих-код'],
-  [['라벨'], 'этикетка'],
-  [['마킹'], 'маркировка'],
-  [['스캐너'], 'сканер'],
-  [['스캔'], 'сканирование'],
-  [['브리핑'], 'планёрка'],
-  [['점심시간'], 'обед'],
-  [['휴식시간'], 'перерыв'],
-  [['급여'], 'зарплата'],
-  [['선급금'], 'аванс'],
-  [['상여금'], 'премия'],
-  [['벌금'], 'штраф'],
-  [['지각'], 'опоздание'],
-  [['결근'], 'прогул'],
-  [['병가'], 'больничный'],
-  [['휴가'], 'отпуск'],
-  [['건강검진'], 'медосмотр'],
-  [['안전교육'], 'инструктаж (техника безопасности)'],
-  [['안전모'], 'каска'],
-  [['안전조끼'], 'жилет'],
-  [['출입증'], 'пропуск'],
-  [['출입용 팔찌'], 'браслет'],
-  [['창고'], 'склад'],
-  [['상품'], 'товар'],
-  [['화물'], 'груз'],
-  [['물류'], 'логистика'],
-  [['운전기사'], 'водитель'],
-  [['입고 확인서'], 'акт приёмки'],
-  [['요청서'], 'заявка'],
-  [['근무표'], 'график работы'],
-  [['초과근무'], 'переработка'],
-  [['작업복'], 'спецодежда'],
-  [['스트레치 필름'], 'стрейч-плёнка'],
-  [['테이프'], 'скотч']
-];
-
-function W(x){ return Array.isArray(x) ? x : [x]; }
-function normRu(s){
-  return s.toLowerCase().replace(/ё/g,'е')
-    .replace(/[!.,;:?«»"()\-]+/g,' ').replace(/\s+/g,' ').trim();
-}
-function escRe(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
-
-// --- северокорейская нормализация: южные слова → северные (문화어) ---
-var NK_NORM = [
-  ['급여','로임'], ['컴퓨터','전자계산기'], ['주스','열매즙'],
-  ['아이스크림','얼음과자'], ['텔레비전','텔레비죤'], ['스포츠','체육'],
-  ['장난감','완구'], ['패스','출입증']
-];
-// деловой формальный стиль (합니다체) вместо разговорного (해요체)
-var FORMAL = [
-  ['주세요','주십시오'], ['하세요','하십시오'], ['가세요','가십시오'],
-  ['오세요','오십시오'], ['보세요','보십시오'], ['드세요','드십시오'],
-  ['먹어요','먹습니다'], ['마셔요','마십니다'], ['해요','합니다'],
-  ['가요','갑니다'], ['와요','옵니다'], ['봐요','봅니다'], ['줘요','줍니다'],
-  ['있어요','있습니다'], ['없어요','없습니다'], ['좋아요','좋습니다'],
-  ['괜찮아요','괜찮습니다'], ['알았어요','알았습니다'], ['아니요','아닙니다'],
-  ['그래요','그렇습니다'], ['예요','입니다'], ['이에요','입니다'],
-  ['됐어요','됐습니다'], ['끝났어요','끝났습니다'], ['시작해요','시작합니다'],
-  ['기다려요','기다립니다'], ['했어요','했습니다'], ['갔어요','갔습니다'],
-  ['왔어요','왔습니다'], ['필요해요','필요합니다']
-];
-function applyNKStyle(out){
-  NK_NORM.forEach(function(p){
-    if (out.indexOf(p[0]) !== -1){
-      out = fixParticles(out.split(p[0]).join(p[1]), p[1]);
-    }
-  });
-  FORMAL.forEach(function(p){ out = out.split(p[0]).join(p[1]); });
-  return out;
-}
-
-// чиним частицы после подставленного корейского слова (을/를, 이/가, 은/는,
-// 과/와, 으로/로 — выбор зависит от того, кончается ли слово на гласную)
-function hangulEndsVowel(s){
-  var c = s.charCodeAt(s.length - 1);
-  if (c < 0xAC00 || c > 0xD7A3) return null;
-  return ((c - 0xAC00) % 28) === 0;   // true = последняя гласная
-}
-function fixParticles(text, term){
-  var vowel = hangulEndsVowel(term);
-  if (vowel === null) return text;
-  var i = text.indexOf(term);
-  while (i !== -1){
-    var j = i + term.length;
-    var nxt = text.charAt(j);
-    var fix = null;
-    if (vowel){
-      if (nxt === '을') fix = '를';
-      else if (nxt === '이') fix = '가';
-      else if (nxt === '은') fix = '는';
-      else if (nxt === '과') fix = '와';
-      else if (nxt === '으') fix = '로';
-      else if (nxt === '아') fix = '야';
-    } else {
-      if (nxt === '를') fix = '을';
-      else if (nxt === '가') fix = '이';
-      else if (nxt === '는') fix = '은';
-      else if (nxt === '와') fix = '과';
-      else if (nxt === '로') fix = '으로';
-      else if (nxt === '야') fix = '아';
-    }
-    if (fix) text = text.slice(0, j) + fix + text.slice(j + nxt.length);
-    i = text.indexOf(term, j);
-  }
-  return text;
-}
-
-// несклоняемые сокращения (ТСД, КГТ, РЦ...) — безопасны для подстановки
-// в готовую фразу: падеж у них не меняется
-function isIndeclinableRu(v){
-  return /^[A-ZА-ЯЁ0-9][A-ZА-ЯЁ0-9\- .]*$/.test(v);
-}
-
-// Заменяем термины словаря на токены T1Q.. до машинного перевода,
-// после перевода возвращаем точные значения. Если input целиком — термин
-// из словаря, машинный перевод не нужен вообще (exact).
-function applyGlossary(text, sl, cb){
-  var gloss = (sl === 'ru') ? GLOSS_RU : GLOSS_KO;
-  var norm = (sl === 'ru') ? normRu(text) : text.trim().replace(/[.!?,]+$/,'');
-  var i, j, v;
-  for (i = 0; i < gloss.length; i++){
-    for (j = 0; j < W(gloss[i][0]).length; j++){
-      v = W(gloss[i][0])[j];
-      if (norm === ((sl === 'ru') ? normRu(v) : v)){
-        cb({ text: gloss[i][1], tokens: [], exact: true });
-        return;
-      }
-    }
-  }
-  // длинные варианты раньше коротких
-  var entries = [];
-  gloss.forEach(function(g){
-    W(g[0]).forEach(function(v2){ entries.push([v2, g[1]]); });
-  });
-  entries.sort(function(a,b){ return b[0].length - a[0].length; });
-  var t = text, tokens = [], idx = 0;
-  entries.forEach(function(e){
-    var term = e[0];
-    if (sl === 'ru'){
-      // русские слова склоняются: ищем основу слова + окончание.
-      // варианты: полное слово и слово без последней буквы
-      var variants = [term];
-      if (/[а-яё]$/i.test(term) && term.length >= 5) variants.push(term.slice(0, -1));
-      if (term.indexOf(' ') !== -1){
-        // в словосочетаниях склоняется только последнее слово
-        var parts = term.split(' ');
-        var last = parts.pop();
-        var v2 = [last];
-        if (/[а-яё]$/i.test(last) && last.length >= 4) v2.push(last.slice(0, -1));
-        variants = v2.map(function(l){ return parts.join(' ') + ' ' + l; });
-      }
-      variants.forEach(function(stem){
-        var esc = escRe(stem).replace(/ё/g,'[её]');
-        var re = new RegExp('(^|[^а-яё])(' + esc + '[ауеиыоюьй]?)($|[^а-яё])', 'gi');
-        if (re.test(t)){
-          idx++;
-          t = t.replace(re, '$1T' + idx + 'Q$3');
-          tokens.push(['T' + idx + 'Q', e[1]]);
-        }
-      });
-    } else {
-      // обратное направление: подставляем только несклоняемые сокращения
-      // (ТСД, КГТ...), обычные слова машинный перевод делает сам и без
-      // ошибок падежа
-      if (t.indexOf(term) !== -1 && isIndeclinableRu(e[1])){
-        idx++;
-        t = t.split(term).join('T' + idx + 'Q');
-        tokens.push(['T' + idx + 'Q', e[1]]);
-      }
-    }
-  });
-  cb({ text: t, tokens: tokens, exact: false });
-}
-
-// ---------- перевод ----------
-function setStatus(msg, cls){
-  statusEl.textContent = msg || '';
-  statusEl.className = cls || '';
-}
-
-// Серверы перевода по очереди: если основной недоступен (например, VPN
-// режет запросы к translate.googleapis.com), пробуем запасные
-var MT_ENDPOINTS = [
-function(q, sl, tl){
-  return 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&dt=rm&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
-},
-  function(q, sl, tl){
-    return 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
-  },
-  function(q, sl, tl){
-    return 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(q) + '&langpair=' + sl + '|' + tl;
-  }
-];
-
-function parseMT(data, ep){
-  try{
-    if (ep === 0){
-      var out = '';
-      data[0].forEach(function(seg){ if (seg[0]) out += seg[0]; });
-      return out || null;
-    }
-    if (ep === 1){ // dict-chrome-ex: ["перевод"] или [[["перевод",...]]]
-      if (typeof data[0] === 'string') return data[0];
-      if (data[0] && typeof data[0][0] === 'string') return data[0][0];
-      if (data[0] && data[0][0] && typeof data[0][0][0] === 'string') return data[0][0][0];
-      return null;
-    }
-    if (ep === 2){
-      return (data && data.responseData && data.responseData.translatedText) || null;
-    }
-  }catch(e){ return null; }
-  return null;
-}
-
-// --- транскрипция кириллицей (как произнести по-корейски русскому) ---
-function parseRom(data, ep){
-  try{
-    if (ep === 0){
-      var rom = '';
-      data[0].forEach(function(seg){
-        if (!seg[0] && seg.length > 2){ var r = seg[2] || seg[3]; if (r) rom += r; }
-      });
-      return rom || null;
-    }
-    if (ep === 1){
-      try{ return data[0][0][3] || null; }catch(e){ return null; }
-    }
-  }catch(e){}
-  return null;
-}
-function latToCyr(s){
-  if (!s) return '';
-  s = s.toLowerCase();
-  var rules = [
-    ['yeo','ё'],['ya','я'],['yo','ё'],['yu','ю'],['ye','е'],
-    ['ae','э'],['oe','ве'],['eo','о'],['eu','ы'],['ui','ый'],['wi','ви'],
-    ['kk','кк'],['tt','тт'],['pp','пп'],['ss','сс'],['jj','чч'],
-    ['ng','н'],['ch','ч'],['sh','ш'],
-    ['a','а'],['b','б'],['d','д'],['e','е'],['g','г'],['h','х'],['i','и'],
-    ['j','дж'],['k','к'],['l','ль'],['m','м'],['n','н'],['o','о'],['p','п'],
-    ['r','р'],['s','с'],['t','т'],['u','у'],['w','в'],['y','й'],
-    ['f','ф'],['v','в'],['z','з']
-  ];
-  var out = '', i = 0;
-  while (i < s.length){
-    var hit = null;
-    for (var k = 0; k < rules.length; k++){
-      if (s.substr(i, rules[k][0].length) === rules[k][0]){ hit = rules[k]; break; }
-    }
-    if (hit){ out += hit[1]; i += hit[0].length; }
-    else { out += s.charAt(i); i++; }
-  }
-  return out;
-}
-function setRoman(text){
-  var el = $('roman');
-  if (text){ el.textContent = '🔊 Произносится: «' + text + '»'; el.classList.remove('hidden'); }
-  else el.classList.add('hidden');
-}
-function mtRoman(text, done){
-  var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=rm&sl=ko&tl=en&q=' + encodeURIComponent(text);
-  fetch(url)
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(data){ done(parseRom(data, 0)); })
-    .catch(function(){ done(null); });
-}
-function showRoman(out, tl, rom){
-  if (tl !== 'ko'){ setRoman(null); return; }
-  if (rom){ setRoman(latToCyr(rom)); return; }
-  // романизации нет (точный термин из словаря / запасной сервер) — запросим отдельно
-  if (/[가-힣]/.test(out)){
-    mtRoman(out, function(r){ setRoman(r ? latToCyr(r) : null); });
-  } else setRoman(null);
-}
-
-function mtFetch(q, sl, tl, done){
-  var settled = false;   // защита от двойного done (таймаут vs ответ)
-  var attempt = function(ep){
-    if (settled) return;
-    if (ep >= MT_ENDPOINTS.length){ settled = true; done(null, null); return; }
-    var fin = false;
-    // таймаут 6 с на сервер: подвисший fetch не должен залипать busy навсегда
-    var to = setTimeout(function(){ if (!fin){ fin = true; attempt(ep + 1); } }, 6000);
-    fetch(MT_ENDPOINTS[ep](q, sl, tl))
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(data){
-        if (fin) return; fin = true; clearTimeout(to);
-        var out = parseMT(data, ep);
-        if (out){ settled = true; done(out, parseRom(data, ep)); }
-        else attempt(ep + 1);
-      })
-      .catch(function(){ if (fin) return; fin = true; clearTimeout(to); attempt(ep + 1); });
-  };
-  attempt(0);
-}
-
-// cb(ok, outText)
-function doTranslate(text, sl, tl, cb){
-  applyGlossary(text, sl, function(g){
-    if (g.exact){
-      lastResult = g.text;
-      output.textContent = g.text;
-      output.classList.remove('empty');
-      addHistory(text, g.text, sl, tl);
-      busy = false;
-      setStatus('📖 Термин из словаря склада', 'ok');
-      cb(true, g.text);
-      return;
-    }
-    mtFetch(g.text, sl, tl, function(out, rom){
-      if (!out){
-        busy = false;
-        setStatus('Ошибка перевода. Возможно, мешает VPN — смените сервер или выключите его', 'err');
-        cb(false, null);
-        return;
-      }
-      var missing = 0;
-      g.tokens.forEach(function(p){
-        if (out.indexOf(p[0]) !== -1) out = fixParticles(out.split(p[0]).join(p[1]), p[1]);
-        else missing++;
-      });
-      if (sl === 'ru') out = applyNKStyle(out);
-      if (g.tokens.length && missing === 0){
-        lastResult = out;
-        output.textContent = out;
-        output.classList.remove('empty');
-        addHistory(text, out, sl, tl);
-        busy = false;
-        showRoman(out, tl, null);
-        setStatus('📖 Словарь склада: ' + g.tokens.length + ' терм.', 'ok');
-        cb(true, out);
-      } else if (g.tokens.length){
-        // токены исказились — повторяем машинный перевод без словаря
-        mtFetch(text, sl, tl, function(raw){
-          if (raw){
-            if (sl === 'ru') raw = applyNKStyle(raw);
-            lastResult = raw;
-            output.textContent = raw;
-            output.classList.remove('empty');
-            addHistory(text, raw, sl, tl);
-            busy = false;
-            showRoman(raw, tl, null);
-            setStatus('Перевод без словаря (термины не закрепились)', 'err');
-            cb(true, raw);
-          } else {
-            busy = false;
-            setStatus('Ошибка перевода. Возможно, мешает VPN — смените сервер или выключите его', 'err');
-            cb(false, null);
-          }
-        });
-      } else {
-        lastResult = out;
-        output.textContent = out;
-        output.classList.remove('empty');
-        addHistory(text, out, sl, tl);
-        busy = false;
-        showRoman(out, tl, null);
-        setStatus('', 'ok');
-        cb(true, out);
-      }
-    });
-  });
-}
-
-// cb(true/false) — после завершения; если cb передан, автопроговаривание не делаем
-function translateNow(cb, speakIt){
-  var text = input.value.trim();
-  if (!text){
-    output.textContent = '…'; output.classList.add('empty');
-    if (cb) cb(false);
-    return;
-  }
-  if (busy){ setTimeout(function(){ translateNow(cb, speakIt); }, 300); return; }
-  busy = true;
-  if (!cb) setStatus('Перевод…');
-  var p = dir.split('2');
-  doTranslate(text, p[0], p[1], function(ok, out){
-    if (ok && out) { /* вывод уже показан в doTranslate */ }
-    if (cb) cb(ok, out);
-    else if (ok && speakIt !== false && $('autoSpeak').checked) speak(out, p[1]);
-  });
-}
-
-goBtn.addEventListener('click', function(){
-  clearTimeout(trTimer); translateNow();
-});
-input.addEventListener('input', function(){
-  if (window._gtAudio || ('speechSynthesis' in window && speechSynthesis.speaking)) stopTTS();  // начал печатать заново — замолчать
-  if (!$('autoTr').checked) return;
-  clearTimeout(trTimer);
-  // авто-перевод только ПОСЛЕ 2 с паузы в наборе и ТОЛЬКО текстом на экран;
-  // озвучка — по явному действию (Enter или кнопка «Перевести»)
-  trTimer = setTimeout(function(){ translateNow(null, false); }, 2000);
-});
-input.addEventListener('keydown', function(e){
-  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); clearTimeout(trTimer); translateNow(); input.blur(); }
-});
-$('clear').addEventListener('click', function(){
-  input.value = ''; output.textContent = '…'; output.classList.add('empty');
-  lastResult = ''; setStatus(''); input.focus();
-});
-$('copy').addEventListener('click', function(){
-  if (!lastResult) return;
-  if (NATIVE && window.AndroidBridge.copy){
-    AndroidBridge.copy(lastResult); setStatus('Скопировано', 'ok'); return;
-  }
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(lastResult).then(function(){ setStatus('Скопировано', 'ok'); });
-  } else {
-    var t = document.createElement('textarea'); t.value = lastResult;
-    document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
-    setStatus('Скопировано', 'ok');
-  }
-});
-
-// ---------- озвучка ----------
-// iOS Safari: синтез речи работает только после первого пользовательского
-// жеста — «разблокируем» пустой utterance на первое касание/клик
-var ttsUnlocked = false;
-function unlockTTS(){
-  if (NATIVE || ttsUnlocked || !('speechSynthesis' in window)) return;
-  try{
-    speechSynthesis.getVoices();   // заодно прогреваем список голосов
-    var u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0;
-    speechSynthesis.speak(u);
-    // заодно разблокируем Audio-элемент (для онлайн-голоса)
-    var a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
-    a.volume = 0;
-    var p = a.play(); if (p && p.catch) p.catch(function(){});
-    ttsUnlocked = true;
-  }catch(e){}
-}
-document.addEventListener('touchstart', unlockTTS, {passive:true});
-document.addEventListener('click', unlockTTS, {passive:true});
-try{
-  if ('speechSynthesis' in window && speechSynthesis.addEventListener){
-    speechSynthesis.addEventListener('voiceschanged', function(){ speechSynthesis.getVoices(); });
-  }
-}catch(e){}
-
-// iOS иногда игнорирует u.lang без явного u.voice — ищем голос по языку
-function pickVoice(lang){
-  try{
-    var vs = speechSynthesis.getVoices() || [];
-    for (var i = 0; i < vs.length; i++){
-      var vl = (vs[i].lang || '').toLowerCase().replace('_','-');
-      if (vl.indexOf(lang) === 0) return vs[i];
-    }
-  }catch(e){}
-  return null;
-}
-
-function splitForTTS(text, max){
-  var parts = [], s = text.trim();
-  while (s.length > max){
-    var cut = s.lastIndexOf(' ', max);
-    if (cut < max / 2) cut = max;
-    parts.push(s.slice(0, cut).trim());
-    s = s.slice(cut).trim().replace(/^[,\.]\s*/, '');
-  }
-  if (s.length) parts.push(s);
-  return parts;
-}
-
-// онлайн-голос Google Translate (как в Гугл-переводчике): корейский — женский,
-// русский — мужской. Ошибка → откат на системный синтезатор (sysSpeak)
-function stopTTS(){
-  try{ speechSynthesis.cancel(); }catch(e){}
-  if (window._gtAudio){ try{ window._gtAudio.pause(); window._gtAudio.src = ''; }catch(e){} window._gtAudio = null; }
-  window._speakGen = (window._speakGen || 0) + 1;   // старые цепочки озвучки больше не «дозваниваются»
-}
-
-function speakGT(text, lang, onend, onfail){
-  try{
-    var gen = window._speakGen || 0;
-    speechSynthesis.cancel();
-    if (window._gtAudio){ try{ window._gtAudio.pause(); window._gtAudio.src = ''; }catch(e){} }
-    var a = new Audio('https://translate.google.com/translate_tts?ie=UTF-8' +
-      '&client=tw-ob&ttsspeed=1&tl=' + lang + '&q=' + encodeURIComponent(text));
-    window._gtAudio = a;
-    var done = false;
-    var fin = function(){ if (!done && gen === (window._speakGen || 0)){ done = true; if (onend) onend(); } };
-    var fail = function(){ if (!done && gen === (window._speakGen || 0)){ done = true; a.src = ''; if (onfail) onfail(); } };
-    a.onerror = fail;
-    a.onended = fin;
-    var p = a.play();
-    if (p && p.catch) p.catch(function(){ fail(); });
-    // страховка: если за 5 с звук так и не пошёл — системный голос
-    setTimeout(function(){ if (!done && (!a.currentTime || a.paused && !a.ended)) fail(); }, 5000);
-  }catch(e){ if (onfail) onfail(); }
-}
-
-// системный синтезатор (офлайн-запасной вариант)
-function sysSpeak(text, lang, onend){
-  if (!('speechSynthesis' in window)){ if (onend) onend(); return; }
-  try{
-    speechSynthesis.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang = BCP[lang];
-    var v = pickVoice(lang);
-    if (v) u.voice = v;
-    u.rate = 0.9; // чуть медленнее — понятнее для диалога
-    var finished = false;
-    var fin = function(){
-      if (finished) return;
-      finished = true;
-      if (onend) onend();
-    };
-    u.onend = fin;
-    u.onerror = function(){
-      if (!v && !finished){
-        setStatus('Нет голоса для языка ' + LANG[lang] + ': на iPhone — Настройки → Универсальный доступ → Проговаривание речи → Голоса', 'err');
-      }
-      fin();
-    };
-    speechSynthesis.speak(u);
-    // страховка: если iOS вообще не вызвал события — продолжаем через 15 сек
-    setTimeout(fin, 15000);
-  }catch(e){ if (onend) onend(); }
-}
-
-function speak(text, lang, onend){
-  if (!text){ if (onend) onend(); return; }
-  if (NATIVE){
-    window._speakEnd = onend || null;
-    AndroidBridge.speak(text, lang);
-    return;
-  }
-  if (!('speechSynthesis' in window) && !window.Audio){ if (onend) onend(); return; }
-  unlockTTS();
-  stopTTS();
-  var parts = splitForTTS(text, 180);
-  var idx = 0;
-  var playNext = function(){
-    if (idx >= parts.length){ if (onend) onend(); return; }
-    var p = parts[idx++];
-    speakGT(p, lang, playNext, function(){
-      // онлайн-голос не удался — озвучиваем остаток системным голосом
-      var rest = (p + ' ' + parts.slice(idx).join(' ')).trim();
-      idx = parts.length;
-      sysSpeak(rest, lang, onend);
-    });
-  };
-  playNext();
-}
-window.onNativeSpeakDone = function(){
-  if (window._speakEnd){ var f = window._speakEnd; window._speakEnd = null; f(); }
+  mtTimeoutMs: 6000          // таймаут на ОДИН эндпоинт (плохой Wi-Fi склада)
 };
-$('speak').addEventListener('click', function(){ speak(lastResult || output.textContent, dir.split('2')[1]); });
 
-// ---------- звуки диалога ----------
-var audioBeep = null;
-function tone(freq, dur, delay){
-  try{
-    audioBeep = audioBeep || new (window.AudioContext || window.webkitAudioContext)();
-    var o = audioBeep.createOscillator(), g = audioBeep.createGain();
-    o.frequency.value = freq; o.type = 'sine';
-    g.gain.value = 0.12;
-    o.connect(g); g.connect(audioBeep.destination);
-    var t0 = audioBeep.currentTime + (delay || 0);
-    o.start(t0); o.stop(t0 + dur);
-  }catch(e){}
-}
-function beepAccepted(){ tone(920, 0.09); tone(1240, 0.09, 0.1); }
-function beepSent(){ tone(660, 0.07); tone(660, 0.07, 0.12); }
+/* ---------- СЕВЕРОКОРЕЙСКАЯ НОРМА (문화어) ----------
+ * Массив пар [южнокорейский/стандартный вариант, северокорейский вариант].
+ * Применяется как постобработка ПОСЛЕ машинного перевода (ни один
+ * публичный API не умеет «северокорейский» как целевой язык).
+ * Источники для пополнения: 조선말규범집, 북한말사전, учебники КНДР
+ * на Internet Archive. Словарь расширяемый — просто добавляйте пары.
+ * Порядок не важен: замена идёт по всей строке, длинные пары — первыми. */
+var NORTH_KOREAN_LEXICON = [
+  /* — написания с начальными ㄹ/ㄴ (правило 문화어) — */
+  ['여자','녀자'], ['여권','려권'], ['여관','려관'], ['이발소','리발소'],
+  ['노동','로동'], ['연락','련락'],
+  ['냉장고','랭장고'], ['냉동','랭동'], ['에어컨','랭방기'],
+  /* — лексика — */
+  ['아이스크림','얼음과자'], ['옥상','살마루'], ['옥수수','강냉이'],
+  ['애호박','청둥호박'], ['화장실','위생실'], ['경찰','보안원'],
+  ['월급','로임'], ['급여','로임'], ['임금','로임'],
+  ['기차','렬차'], ['공항','비행장'], ['선생님','교원'],
+  ['볼펜','원주필'], ['컴퓨터','전자계산기'], ['카메라','사진기'],
+  ['호텔','려관'], ['크레인','기중기'], ['음료수','청량음료'],
+  ['축구','측구'], ['인터넷','인터네트'], ['로봇','로보트'],
+  ['샴푸','머리감는비누'], ['스킨','화장수'], ['버스','뻐스'],
+  ['텔레비전','텔레비죤'], ['로켓','로켓트'], ['배터리','전지']
+];
 
-// ---------- измеритель громкости микрофона (громкость = речь, тишина = шум) ----------
-var micStream = null, analyser = null, volLoopId = null;
-var lastLoudAt = 0, speechSeen = false, listenStartedAt = 0, finalizedFlag = false;
-var VOL_TRESH = 0.04;
+/* ---------- СЛОВАРЬ СКЛАДСКИХ ТЕРМИНОВ WILDBERRIES ----------
+ * Если термин (или сокращение) есть в РУСКОМ исходнике, он принудительно
+ * подставляется в перевод — даже если API перевёл иначе. Механика:
+ * термин маскируется латинским токеном T1Q..TnQ (латиница выживает в MT),
+ * текст переводится, токен заменяется на корейский эквивалент.
+ * Если у термина два варианта через «/» — берётся первый. */
+var WB_WAREHOUSE_GLOSSARY = [
+  ['ТСД',           '데이터수집단말기'],   // терминал сбора данных
+  ['терминал сбора данных', '데이터수집단말기'],
+  ['КГТ',           '대형화물'],           // крупногабаритный товар
+  ['СГТ',           '초대형화물'],          // сверхгабаритный товар
+  ['КБТ',           '대형가전제품'],        // крупная бытовая техника
+  ['тара',          '포장용기'],            // (второй вариант: 짐함)
+  ['паллета',       '파렛트'],
+  ['монопаллета',   '단일파렛트'],
+  ['монокороб',     '단일상자'],
+  ['ШК',            '바코드'],              // штрихкод
+  ['штрихкод',      '바코드'],
+  ['приёмка',       '물건접수'],
+  ['приемка',       '물건접수'],            // без «ё»
+  ['отгрузка',      '발송'],
+  ['сортировка',    '분류'],
+  ['ячейка',        '창고칸'],
+  ['стрейч-плёнка', '늘임비닐'],
+  ['стрейч плёнка', '늘임비닐'],
+  ['стрейч-пленка', '늘임비닐'],
+  ['склад',         '창고'],
+  ['коробка',       '상자'],
+  ['короб',         '상자'],
+  ['весы',          '저울'],
+  ['накладная',     '송장']
+];
 
-function startMeter(){
-  if (NATIVE || !SR || micStream) return;
-  try{
-    navigator.mediaDevices.getUserMedia({audio:true}).then(function(st){
-      micStream = st;
-      var AC = window.AudioContext || window.webkitAudioContext;
-      audioBeep = audioBeep || new AC();
-      var src = audioBeep.createMediaStreamSource(st);
-      analyser = audioBeep.createAnalyser();
-      analyser.fftSize = 512;
-      src.connect(analyser);
-    }).catch(function(){ /* без метра работаем по таймерам */ });
-  }catch(e){}
+/* ---------- состояние (ВСЕ глобальные — var) ---------- */
+var recog = null;            // текущий SpeechRecognition
+var dlgOn = false;           // диалоговая сессия активна
+var dlgCurLang = 'ru-RU';    // кого слушаем СЕЙЧАС
+var dlgPhase = 'idle';       // idle | listen | think | speak
+var thinkTimer = null;       // таймер «раздумий»
+var restartTimer = null;     // отложенный рестарт прослушивания
+var restartPauseN = 0;       // растущая пауза против петли пустых сессий
+var _dlgFinalAt = 0;         // финал пришёл — onend не перезапускает цепочку
+var _dlgErrAt = 0;           // ошибка уже обработана — не дублировать рестарт
+var speakGen = 0;            // ген-токен озвучки: старые цепочки onend глохнут
+var lastRuText = '';         // последний русский текст (кнопка 🔊)
+var lastKoText = '';         // последний корейский текст (кнопка 🔊)
+var ruVoice = null;          // мужской русский голос
+var koVoice = null;          // женский корейский голос
+var voicesReady = false;
+var micWarm = false;         // разрешение на микрофон уже запрошено
+
+/* =================== UI =================== */
+function $(id){ return document.getElementById(id); }
+
+function setStatus(text, cls){
+  var st = $('status');
+  st.textContent = text;
+  st.className = cls || '';
 }
-function rms(){
-  if (!analyser) return 0;
-  var buf = new Uint8Array(analyser.fftSize);
-  analyser.getByteTimeDomainData(buf);
-  var s = 0;
-  for (var i = 0; i < buf.length; i++){ var v = (buf[i] - 128) / 128; s += v * v; }
-  return Math.sqrt(s / buf.length);
+function showErr(msg){
+  // ошибки микрофона/API — КРУПНО на статус-плашке, не мелким шрифтом
+  setStatus(msg, 'err');
 }
-function stopMeter(){
-  if (volLoopId){ clearInterval(volLoopId); volLoopId = null; }
-  if (micStream){
-    try{ micStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
-    micStream = null; analyser = null;
+function addBubble(panelId, text, sourceLabel){
+  var log = $(panelId);
+  var prev = log.querySelector('.bubble.last');
+  if (prev) prev.className = 'bubble';
+  var b = document.createElement('div');
+  b.className = 'bubble last';
+  if (sourceLabel){
+    var s = document.createElement('span');
+    s.className = 'src';
+    s.textContent = sourceLabel;
+    b.appendChild(s);
   }
-}
-function startVolLoop(){
-  if (volLoopId){ clearInterval(volLoopId); volLoopId = null; }
-  volLoopId = setInterval(function(){
-    if (!dialogMode || !listening) return;
-    var v = rms();
-    var now = Date.now();
-    if (v > VOL_TRESH){ lastLoudAt = now; speechSeen = true; }
-    // ВАЖНО: метр НЕ останавливает распознаватель. Chrome сам определяет конец
-    // фразы и сам отдаёт финальный текст. Ручной recog.stop() на шумном складе
-    // давал бесконечный цикл: шум = «речь», 1.2 с тишины = стоп без результата.
-    // Метр нужен только для сторожа полной тишины ниже.
-    // тишина с самого начала дольше 9 с — на этом языке никто не говорит
-    // (человек может думать перед ответом), переключаем язык прослушивания
-    if (!speechSeen && now - listenStartedAt > 9000){
-      dlgFlip = true;
-      dlgMisses = 0;
-      dlgListen();
-    }
-  }, 100);
+  b.appendChild(document.createTextNode(text));
+  log.appendChild(b);
+  log.scrollTop = log.scrollHeight;
+  // держим не больше 30 пузырей на панель
+  while (log.children.length > 30) log.removeChild(log.firstChild);
 }
 
-// ---------- режим диалога ----------
-// Определяем язык говорящего по письменности распознанного текста:
-// хангыль → кореец, кириллица → русский
+/* =================== ОПРЕДЕЛЕНИЕ ЯЗЫКА =================== */
 function detectLang(text){
-  var hangul = (text.match(/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/g) || []).length;
-  var cyr = (text.match(/[\u0400-\u04FF]/g) || []).length;
-  if (hangul > cyr) return 'ko';
-  if (cyr > 0) return 'ru';
+  // хангыль → источник корейский, кириллица → русский
+  if (/[\uAC00-\uD7AF\u1100-\u11FF]/.test(text)) return 'ko';
+  if (/[\u0400-\u04FF]/.test(text)) return 'ru';
   return null;
 }
 
-function dlgListenLang(){
-  var lang;
-  if (dlgExpect !== 'auto') lang = dlgExpect;
-  else if (!dlgLastSpeaker) lang = 'ru';          // старт: слушаем русского
-  else lang = dlgLastSpeaker === 'ru' ? 'ko' : 'ru'; // дальше — отвечает другой
-  if (dlgFlip){ lang = lang === 'ru' ? 'ko' : 'ru'; dlgFlip = false; }
-  return lang;
+/* =================== СЛОВАРЬ + СЕВЕРНАЯ НОРМА =================== */
+function maskGlossary(text){
+  /* маскируем найденные термины латинскими токенами T1Q..TnQ.
+     Русские слова склоняются («на монопаллету», «в ячейке») — поэтому
+     длинные термины (≥4 букв) ищем по ОСНОВЕ (без последней буквы) и
+     забираем в токен до 3 хвостовых букв (падежное окончание уходит
+     вместе с термином — в переводе не остаётся «단일파렛ту»).
+     Слева проверяем границу слова: «тар» не должен ловиться внутри
+     «старший». Аббревиатуры (ТСД, КГТ…) — целиком, та же проверка слева. */
+  var pairs = WB_WAREHOUSE_GLOSSARY.slice().sort(function(a,b){
+    return b[0].length - a[0].length;           // длинные термины первыми
+  });
+  var map = {};
+  var n = 0;
+  var out = text;
+  function isCyr(ch){ return /[а-яёА-ЯЁ]/.test(ch); }
+  for (var i = 0; i < pairs.length; i++){
+    var orig = pairs[i][0].replace(/ё/g,'е');
+    var useStem = orig.length >= 4;
+    var core = useStem ? orig.slice(0, -1) : orig;   // основа слова
+    var tail = useStem ? '[а-яё]{0,3}' : '';
+    var re = new RegExp(core.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + tail, 'gi');
+    out = out.replace(re, function(m, off){
+      var before = off > 0 ? out.charAt(off - 1) : ' ';
+      if (isCyr(before)) return m;               // часть другого слова — не трогаем
+      if (!useStem){
+        var after = out.charAt(off + m.length);
+        if (after && isCyr(after)) return m;     // «шк» внутри «шкафа» — не трогаем
+      }
+      n += 1;
+      map['T' + n + 'Q'] = pairs[i][1];
+      return 'T' + n + 'Q';
+    });
+  }
+  return { text: out, map: map };
 }
 
-function dlgSetState(kind, lang){
-  var dot = $('dlgDot'), txt = $('dlgText'), ban = $('dlgBanner'), sw = $('dlgSwitch');
-  dot.className = 'dot ' + kind;
-  ban.className = 'dlg-banner ' + kind;
-  ban.style.borderColor = ''; ban.style.background = ''; ban.style.color = '';
-  var cur = dlgListenLang();
-  if (kind === 'listening'){
-    txt.textContent = '🎤 СЛУШАЮ: ' + LANG[cur] + (dlgExpect === 'auto' ? ' (авто)' : '');
-    sw.textContent = '→ ' + SHORT[cur === 'ru' ? 'ko' : 'ru'];
-  } else if (kind === 'translating'){
-    txt.textContent = '⏳ ПЕРЕВОЖУ…';
-    sw.textContent = '🔁 ' + SHORT.ru + ' ⇄ ' + SHORT.ko;
-  } else if (kind === 'speaking'){
-    txt.textContent = '🔊 ОЗВУЧИВАЮ: ' + LANG[lang];
-    sw.textContent = '🔁 ' + SHORT.ru + ' ⇄ ' + SHORT.ko;
-  } else {
-    txt.textContent = 'Готов';
-    sw.textContent = '🔁 ' + SHORT.ru + ' ⇄ ' + SHORT.ko;
+function unmaskGlossary(text, map){
+  var out = text;
+  for (var k in map){
+    if (!map.hasOwnProperty(k)) continue;
+    var re = new RegExp(k, 'g');
+    out = out.replace(re, map[k]);
+  }
+  return out;
+}
+
+function fixParticles(text){
+  /* после замены слов по словарю ломается частица: 얼음과자을 → 얼음과자를.
+     Правим 을/를 по последней букве предыдущего слова:
+     есть финальная согласная (종성) → 을, гласная → 를. */
+  function hasJong(ch){
+    var c = ch.charCodeAt(0);
+    if (c < 0xAC00 || c > 0xD7A3) return true;   // не слог — считаем согласной
+    return ((c - 0xAC00) % 28) !== 0;
+  }
+  return text
+    .replace(/([가-힣]+)(을|를)/g, function(all, word){
+      return word + (hasJong(word.charAt(word.length - 1)) ? '을' : '를');
+    })
+    .replace(/([가-힣]+)(으로|로)/g, function(all, word){
+      var last = word.charAt(word.length - 1);
+      if (!hasJong(last)) return word + '로';    // гласная → 로
+      var c = last.charCodeAt(0);
+      var jong = (c - 0xAC00) % 28;
+      return word + (jong === 7 ? '로' : '으로'); // ㄹ → 로, остальные согласные → 으로
+    });
+}
+
+function applyNorthKorean(text){
+  /* южная норма → 문화어: замена по словарю, длинные пары первыми */
+  var pairs = NORTH_KOREAN_LEXICON.slice().sort(function(a,b){
+    return b[0].length - a[0].length;
+  });
+  var out = text;
+  for (var i = 0; i < pairs.length; i++){
+    var re = new RegExp(pairs[i][0].replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'g');
+    out = out.replace(re, pairs[i][1]);
+  }
+  return fixParticles(out);
+}
+
+/* =================== ПЕРЕВОД (без LLM) =================== */
+function mtFetch(url, opts){
+  /* fetch с жёстким таймаутом: на плохом Wi-Fi busy не залипает навсегда */
+  return new Promise(function(res, rej){
+    var settled = false;
+    var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var t = setTimeout(function(){
+      if (settled) return;
+      settled = true;
+      if (ctl) try { ctl.abort(); } catch(e){}
+      rej(new Error('timeout'));
+    }, API_CONFIG.mtTimeoutMs);
+    if (ctl && opts) opts.signal = ctl.signal;
+    fetch(url, opts).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(j){
+      if (settled) return;
+      settled = true; clearTimeout(t); res(j);
+    }).catch(function(e){
+      if (settled) return;
+      settled = true; clearTimeout(t); rej(e);
+    });
+  });
+}
+
+function viaDeeplx(text, src, tgt){
+  if (!API_CONFIG.deeplxUrl) return Promise.reject(new Error('deeplx off'));
+  return mtFetch(API_CONFIG.deeplxUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: text,
+      source_lang: src.toUpperCase(),
+      target_lang: tgt.toUpperCase()
+    })
+  }).then(function(j){
+    var out = j && (j.data || j.translation || j.alternatives && j.alternatives[0]);
+    if (!out) throw new Error('deeplx empty');
+    return out;
+  });
+}
+
+function viaMyMemory(text, src, tgt){
+  var url = API_CONFIG.mymemoryUrl +
+    '?q=' + encodeURIComponent(text) +
+    '&langpair=' + src + '|' + tgt;
+  return mtFetch(url).then(function(j){
+    var d = j && j.responseData;
+    var out = d && d.translatedText;
+    // лимит/ошибка MyMemory приходит обычным текстом с WARNING
+    if (!out || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID/i.test(out)){
+      throw new Error('mymemory limit');
+    }
+    return out;
+  });
+}
+
+function viaGtx(text, src, tgt){
+  var url = API_CONFIG.gtxUrl +
+    '?client=gtx&sl=' + src + '&tl=' + tgt + '&dt=t' +
+    '&q=' + encodeURIComponent(text);
+  return mtFetch(url).then(function(j){
+    if (!j || !j[0] || !j[0].length) throw new Error('gtx empty');
+    var out = '';
+    for (var i = 0; i < j[0].length; i++){
+      if (j[0][i] && j[0][i][0]) out += j[0][i][0];
+    }
+    if (!out) throw new Error('gtx empty');
+    return out;
+  });
+}
+
+function translateText(text, src, tgt, cb){
+  /* цепочка fallback: DeepLX → MyMemory → Google gtx → ошибка.
+     Никаких LLM API (OpenAI/GLM/Claude) — только эти три. */
+  var masked = { text: text, map: {} };
+  if (src === 'ru'){
+    masked = maskGlossary(text);
+  }
+  var chain = [viaDeeplx, viaMyMemory, viaGtx];
+  var idx = 0;
+  function attempt(){
+    if (idx >= chain.length){ cb(null); return; }
+    var fn = chain[idx]; idx += 1;
+    fn(masked.text, src, tgt).then(function(out){
+      if (src === 'ru') out = unmaskGlossary(out, masked.map);
+      if (tgt === 'ko') out = applyNorthKorean(out);
+      cb(out);
+    }).catch(function(){ attempt(); });
+  }
+  attempt();
+}
+
+/* =================== ОЗВУЧКА =================== */
+/* Настоящий северокорейский акцент браузерным TTS НЕ даётся — движки
+ * Chrome/Safari отдают только южнокорейские голоса. Для настоящего
+ * акцента нужен внешний TTS (вне этого файла). Здесь: ko → женский голос,
+ * ru → мужской голос, насколько позволяет система. */
+function pickVoice(lang, malePrefs, femalePrefs){
+  var vs = speechSynthesis.getVoices();
+  var pool = [];
+  for (var i = 0; i < vs.length; i++){
+    if (vs[i].lang && vs[i].lang.toLowerCase().indexOf(lang) === 0) pool.push(vs[i]);
+  }
+  var prefs = (lang === 'ru') ? malePrefs : femalePrefs;
+  for (var p = 0; p < prefs.length; p++){
+    for (var v = 0; v < pool.length; v++){
+      if (pool[v].name.indexOf(prefs[p]) !== -1) return pool[v];
+    }
+  }
+  return pool.length ? pool[0] : null;
+}
+
+function loadVoices(){
+  var vs = speechSynthesis.getVoices();
+  if (!vs.length){ speechSynthesis.onvoiceschanged = loadVoices; return; }
+  // русский мужской: Pavel/Artemiy/Dmitry (Win), Google русский; fallback — любой ru
+  ruVoice = pickVoice('ru', ['Pavel','Artemiy','Dmitry','Google русский','Milena','Tatyana'], []);
+  // корейский женский: Yuna/SunHi (Win/Edge), Heami, Google 한국어; fallback — любой ko.
+  // ko-KP в списке голосов не бывает — ищем по префиксу 'ko' (covers ko-KR).
+  koVoice = pickVoice('ko', [], ['Yuna','SunHi','Heami','Google 한국어','Sora']);
+  voicesReady = true;
+}
+
+function stopSpeaking(){
+  /* глушим ВСЁ: и speechSynthesis, и старые GT-аудио через ген-токен */
+  speakGen += 1;
+  try { speechSynthesis.cancel(); } catch(e){}
+}
+
+function speak(text, lang, onDone){
+  stopSpeaking();
+  var gen = speakGen;
+  if (dlgPhase !== 'idle') dlgPhase = 'speak';
+  setStatus(lang === 'ru' ? 'Говорю (рус)…' : '말하는 중 (кор)…', 'speak');
+  var u = new SpeechSynthesisUtterance(text);
+  u.lang = (lang === 'ru') ? 'ru-RU' : 'ko-KR'; // ko-KP браузерные движки не дают
+  var v = (lang === 'ru') ? ruVoice : koVoice;
+  if (v) u.voice = v;
+  u.rate = 0.95;
+  var finished = false;
+  u.onend = function(){
+    if (gen !== speakGen || finished) return;   // старая цепочка — молча выходим
+    finished = true;
+    if (onDone) onDone();
+  };
+  u.onerror = function(){
+    if (gen !== speakGen || finished) return;
+    finished = true;
+    if (onDone) onDone();
+  };
+  speechSynthesis.speak(u);
+  // страховка: если onend/onerror не пришли за 30 с — идём дальше
+  setTimeout(function(){
+    if (gen !== speakGen || finished) return;
+    finished = true;
+    if (onDone) onDone();
+  }, 30000);
+}
+
+/* =================== ДИАЛОГ =================== */
+function warmMic(){
+  /* ОДИН раз запрашиваем разрешение и СРАЗУ гасим поток:
+     открытый getUserMedia-поток блокирует SpeechRecognition на iOS
+     (историческая бабка v1.8), поэтому метр громкости здесь не нужен вовсе */
+  if (micWarm) return Promise.resolve();
+  micWarm = true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.resolve();
+  return navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream){
+    stream.getTracks().forEach(function(t){ t.stop(); });
+  }).catch(function(){
+    /* разрешение спросит сам SpeechRecognition — не блокируем старт */
+  });
+}
+
+function webStop(){
+  /* свой abort — НЕ ошибка: помечаем экземпляр убитым, иначе Chrome кинет
+     onerror('aborted') и отложенный рестарт убьёт следующую сессию (урок v3.4) */
+  if (recog){
+    try { recog._killed = true; recog.abort(); } catch(e){}
+    recog = null;
   }
 }
 
 function dlgListen(){
-  if (!dialogMode) return;
-  var src = dlgListenLang();
-  input.value = ''; lastResult = '';
-  dlgSetState('listening', src);
-  if (NATIVE){
-    AndroidBridge.startListen(BCP[src]);
-  } else if (SR){
-    webStop();
-    dlgCurLang = src;
-    listenStartedAt = Date.now();
-    lastLoudAt = listenStartedAt;
-    speechSeen = false;
-    finalizedFlag = false;
-    if (IS_IOS){
-      // iOS: открытый getUserMedia-поток блокирует SpeechRecognition —
-      // метр громкости не включаем, и гасим поток, если остался от ручного режима
-      stopMeter();
-      setTimeout(function(){ if (dialogMode) webStart(); }, 250);
-    } else {
-      startMeter();
-      setTimeout(function(){ if (dialogMode) webStart(); }, 250);
-      setTimeout(function(){ if (dialogMode && listening) startVolLoop(); }, 400);
-    }
-  }
-}
-
-function dlgTranslate(text){
-  input.value = text;
-  var det = detectLang(text);
-  // мусор: распознавание не на том языке даёт текст без хангыля и кириллицы —
-  // отбрасываем и переключаем язык прослушивания
-  var letters = text.replace(/\s/g, '').length;
-  var hang = (text.match(/[가-힣]/g) || []).length;
-  var cyr = (text.match(/[а-яё]/gi) || []).length;
-  if (!det && letters > 0 && (hang + cyr) < letters * 0.5){
-    dlgFlip = true;
-    dlgMisses = 0;
-    setStatus('Не тот язык прослушивания — переключаю', 'err');
-    setTimeout(dlgListen, 800);
+  if (!dlgOn) return;
+  dlgPhase = 'listen';
+  setStatus(dlgCurLang === 'ru-RU' ? 'Слушаю (рус)…' : '듣는 중 (кор)…', 'listen');
+  webStop();
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR){
+    showErr('Браузер не поддерживает распознавание речи. Откройте в Chrome или Safari.');
     return;
   }
-  if (!det) det = dlgListenLang();   // скрипт не определился — считаем ожидаемым языком
-  dlgLastSpeaker = det;
-  dlgMisses = 0;
-  dlgErrStreak = 0;
-  window._lastSpk = det;
-  var other = det === 'ru' ? 'ko' : 'ru';
-  beepAccepted();                    // фраза принята
-  dlgSetState('translating');
-  dlgRun(text, det, other);
+  recog = new SR();
+  recog.lang = dlgCurLang;           // язык доносим ДО распознавателя явно
+  recog.continuous = false;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+
+  recog.onresult = function(ev){
+    var fin = '';
+    for (var i = ev.resultIndex; i < ev.results.length; i++){
+      if (ev.results[i].isFinal) fin += ev.results[i][0].transcript;
+    }
+    if (fin.trim()){
+      _dlgFinalAt = Date.now();
+      restartPauseN = 0;
+      dlgFinal(fin.trim());
+    }
+  };
+
+  recog.onerror = function(ev){
+    if (recog && recog._killed) return;        // убили сами — игнор
+    if (ev.error === 'aborted' || ev.error === 'no-speech') return; // не ошибки
+    _dlgErrAt = Date.now();
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+      showErr('Микрофон запрещён. Разрешите доступ к микрофону в настройках браузера.');
+      dlgOn = false;
+      $('micBtn').classList.remove('on');
+      $('micBtn').textContent = '🎤';
+      return;
+    }
+    if (ev.error === 'network'){
+      showErr('Нет связи с сервисом распознавания. Проверьте интернет.');
+    }
+    scheduleRestart(1200);
+  };
+
+  recog.onend = function(){
+    if (recog && recog._killed) return;
+    // финал пришёл — цепочку продолжит dlgFinal (думаю → озвучка → слушать)
+    if (Date.now() - _dlgFinalAt < 800) return;
+    if (Date.now() - _dlgErrAt < 800) return;  // ошибку уже обработали
+    // сессия кончилась БЕЗ финала (метка v3.2) — перезапускаем молча,
+    // с растущей паузой против петли пустых сессий
+    scheduleRestart(700 + 400 * restartPauseN);
+  };
+
+  try { recog.start(); } catch(e){ scheduleRestart(1500); }
 }
 
-function dlgRun(text, sl, tl){
-  if (busy){ setTimeout(function(){ dlgRun(text, sl, tl); }, 300); return; }
-  busy = true;
-  doTranslate(text, sl, tl, function(ok, out){
-    if (!dialogMode) return;
-    if (!ok){ setTimeout(dlgListen, 2000); return; }
-      lastSpoken = { text: out, lang: tl };
-      $('dlgRepeat').disabled = false;
-      dlgSetState('speaking', tl);
-    beepSent();                      // перевод готов, озвучиваем
-    speak(out, tl, function(){
-      if (!dialogMode) return;
-      setTimeout(dlgListen, 600);
-    });
-  });
+function scheduleRestart(delay){
+  if (!dlgOn) return;
+  if (restartTimer) clearTimeout(restartTimer);
+  restartPauseN = Math.min(restartPauseN + 1, 12);   // cap паузы 5.5 с
+  restartTimer = setTimeout(function(){
+    restartTimer = null;
+    dlgListen();
+  }, Math.min(delay, 6000));
 }
 
-// ошибка прослушки в диалоге: переключаем язык ТОЛЬКО если это тишина
-// (говорят на другом языке); ошибки сервиса — просто повтор того же языка
-var dlgErrStreak = 0;
-function dlgOnListenError(msg, code){
-  listening = false;
-  micBtn.classList.remove('rec');
-  window._dlgErrAt = Date.now();
-  // ошибка крупно на плашке (красным) — иначе юзер её не видит и не может сказать нам причину
-  var ban = $('dlgBanner');
-  if (ban && dialogMode){
-    ban.className = 'dlg-banner';
-    ban.style.borderColor = 'var(--danger)'; ban.style.background = '#fdeaea'; ban.style.color = 'var(--danger)';
-    $('dlgText').textContent = '⚠ ' + msg;
-  }
-  var silence = (code === 7 || code === 1 || code === 'no-speech' || code === 'aborted');
-  if (dialogMode && silence){
-    dlgMisses++;
-    if (dlgMisses >= 3 && dlgExpect === 'auto'){
-      dlgFlip = true;
-      dlgMisses = 0;
-      setStatus('Не слышу речь — переключаю язык прослушивания', 'err');
-    } else {
-      setStatus('Тишина — слушаю…');
-    }
-    setTimeout(dlgListen, 2200);
-  } else if (dialogMode){
-    dlgErrStreak++;
-    setStatus(msg, 'err');
-    if (dlgErrStreak >= 4){
-      dlgErrStreak = 0;
-      setStatus('Распознавание не отвечает на языке ' + LANG[dlgListenLang()] +
-        '. Проверьте интернет и обновление приложения Google (Android)', 'err');
-    }
-    setTimeout(dlgListen, 2500);
+function dlgFinal(text){
+  webStop();
+  var src = detectLang(text);
+  if (!src) src = (dlgCurLang === 'ru-RU') ? 'ru' : 'ko';
+  var tgt = (src === 'ru') ? 'ko' : 'ru';
+
+  if (src === 'ru'){
+    lastRuText = text;
+    addBubble('logRu', text, 'сказано');
   } else {
-    setStatus(msg, 'err');
+    lastKoText = text;
+    addBubble('logKo', text, '말함');
   }
+
+  dlgPhase = 'think';
+  /* ЗАДЕРЖКА НА «РАЗДУМЬЯ» 4–6 с — по требованию, не оптимизировать */
+  var wait = 4000 + Math.floor(Math.random() * 2000);
+  setStatus('Думаю… (перевод через несколько секунд)', 'think');
+
+  thinkTimer = setTimeout(function(){
+    thinkTimer = null;
+    translateText(text, src, tgt, function(out){
+      if (!dlgOn && !out) return;
+      if (!out){
+        if (src === 'ru'){ lastKoText = '[перевод недоступен]'; addBubble('logKo', '[перевод недоступен]'); }
+        else { lastRuText = '[перевод недоступен]'; addBubble('logRu', '[перевод недоступен]'); }
+        nextListen();
+        return;
+      }
+      if (tgt === 'ru'){
+        lastRuText = out;
+        addBubble('logRu', out, 'перевод');
+      } else {
+        lastKoText = out;
+        addBubble('logKo', out, '번역');
+      }
+      speak(out, tgt, nextListen);
+    });
+  }, wait);
+}
+
+function nextListen(){
+  if (!dlgOn) { dlgPhase = 'idle'; return; }
+  /* после фразы русского слушаем корейца и наоборот */
+  dlgCurLang = (dlgCurLang === 'ru-RU') ? 'ko-KR' : 'ru-RU';
+  dlgListen();
 }
 
 function dlgStart(){
-  if (dialogMode) return;
-  dialogMode = true;
-  dlgMisses = 0;
-  dlgFlip = false;
-  dlgLastSpeaker = null;      // новый диалог всегда начинаем с русского
-  $('dlgBtn').classList.add('hidden');
-  $('dlgActive').classList.remove('hidden');
-  if (NATIVE){ AndroidBridge.stopSpeak(); }
-  else {
-    if (SR) webStop();   // убиваем ручную сессию микрофона, если была
-    if ('speechSynthesis' in window){ speechSynthesis.cancel(); }
-  }
-  dlgListen();
+  if (dlgOn) return;
+  dlgOn = true;
+  dlgPhase = 'idle';
+  restartPauseN = 0;
+  _dlgFinalAt = 0;
+  _dlgErrAt = 0;
+  $('micBtn').classList.add('on');
+  $('micBtn').textContent = '⏹';
+  if (!voicesReady) loadVoices();
+  // прогрев TTS должен закончиться до старта распознавания (iOS, урок v1.8)
+  try {
+    var warm = new SpeechSynthesisUtterance(' ');
+    warm.volume = 0.03;
+    if (ruVoice) warm.voice = ruVoice;
+    speechSynthesis.speak(warm);
+  } catch(e){}
+  warmMic().then(function(){
+    setTimeout(function(){ if (dlgOn) dlgListen(); }, 1000);
+  });
 }
 
 function dlgStop(){
-  if (!dialogMode) return;
-  dialogMode = false;
-  $('dlgBtn').classList.remove('hidden');
-  $('dlgActive').classList.add('hidden');
-  if (NATIVE){ AndroidBridge.stopListen(); AndroidBridge.stopSpeak(); }
-  else {
-    if (SR) webStop();
-    if ('speechSynthesis' in window) speechSynthesis.cancel();
-  }
-  stopMeter();
-  listening = false;
-  micBtn.classList.remove('rec');
-  setStatus('');
+  dlgOn = false;
+  dlgPhase = 'idle';
+  if (thinkTimer){ clearTimeout(thinkTimer); thinkTimer = null; }
+  if (restartTimer){ clearTimeout(restartTimer); restartTimer = null; }
+  webStop();
+  stopSpeaking();
+  $('micBtn').classList.remove('on');
+  $('micBtn').textContent = '🎤';
+  setStatus('Остановлено. Нажмите микрофон, чтобы продолжить');
 }
 
-$('dlgBtn').addEventListener('click', dlgStart);
-$('dlgStop').addEventListener('click', dlgStop);
-
-// мгновенная смена языка прослушивания (лучшая практика: юзер сам решает,
-// не ждём автодогадки); в АВТО — flip, в фиксированном режиме — перещёлкиваем ожидание
-$('dlgSwitch').addEventListener('click', function(){
-  if (!dialogMode) return;
-  if (dlgExpect === 'auto'){ dlgFlip = true; dlgMisses = 0; }
-  else { setExp(dlgExpect === 'ru' ? 'ko' : 'ru'); }
-  dlgListen();
+/* =================== КНОПКИ =================== */
+$('micBtn').addEventListener('click', function(){
+  if (dlgOn) dlgStop(); else dlgStart();
+});
+$('repRu').addEventListener('click', function(){
+  if (!lastRuText) return;
+  stopSpeaking();
+  dlgPhase = 'speak';
+  speak(lastRuText, 'ru', function(){ if (dlgOn) dlgListen(); else dlgPhase = 'idle'; });
+});
+$('repKo').addEventListener('click', function(){
+  if (!lastKoText) return;
+  stopSpeaking();
+  dlgPhase = 'speak';
+  speak(lastKoText, 'ko', function(){ if (dlgOn) dlgListen(); else dlgPhase = 'idle'; });
 });
 
-// повтор последней переведённой фразы: глушим прослушивание, чтобы
-// микрофон не слышал сам себя, озвучиваем, потом продолжаем диалог
-$('dlgRepeat').addEventListener('click', function(){
-  if (!lastSpoken) return;
-  if (dialogMode){
-    if (NATIVE){ AndroidBridge.stopListen(); }
-    else if (SR){ webStop(); }
-    listening = false;
-    micBtn.classList.remove('rec');
-    dlgSetState('speaking', lastSpoken.lang);
-    speak(lastSpoken.text, lastSpoken.lang, function(){
-      if (dialogMode){ dlgSetState('idle', null); dlgListen(); }
-    });
-  } else {
-    speak(lastSpoken.text, lastSpoken.lang);
-  }
-});
-
-// запуск микрофона из виджета (нативный вызов после открытия приложения)
-window.appOpenMic = function(){
-  if (!NATIVE) return;
-  if (dialogMode){ dlgListen(); return; }
-  AndroidBridge.startListen(BCP[dir.split('2')[0]]);
-};
-
-// язык прослушивания: АВТО / РУС / КОР
-function setExp(v){
-  dlgExpect = v;
-  $('expAuto').classList.toggle('active', v === 'auto');
-  $('expRu').classList.toggle('active', v === 'ru');
-  $('expKo').classList.toggle('active', v === 'ko');
-}
-$('expAuto').addEventListener('click', function(){ setExp('auto'); });
-$('expRu').addEventListener('click', function(){ setExp('ru'); });
-$('expKo').addEventListener('click', function(){ setExp('ko'); });
-
-// ---------- голосовой ввод ----------
-if (NATIVE){
-  // нативный мост: системный SpeechRecognizer Android
-  micBtn.addEventListener('click', function(){
-    if (dialogMode){ dlgListen(); return; }   // тап по 🎤 перезапускает прослушивание диалога
-    if (listening){ AndroidBridge.stopListen(); return; }
-    AndroidBridge.startListen(BCP[dir.split('2')[0]]);
-  });
-  window.onNativeStart = function(){
-    if (!dialogMode){
-      listening = true;
-      micBtn.classList.add('rec');
-      setStatus('Говорите…');
-    }
-  };
-  window.onNativePartial = function(t){ input.value = t; };
-  window.onNativeFinal = function(t){
-    listening = false;
-    micBtn.classList.remove('rec');
-    if (dialogMode){ dlgTranslate(t); return; }
-    input.value = t;
-    clearTimeout(trTimer);
-    if ($('autoTr').checked) translateNow();
-  };
-  window.onNativeError = function(msg, code){
-    dlgOnListenError(msg, code);
-  };
-} else {
-  if (!SR){
-    micBtn.disabled = true;
-    $('dlgBtn').disabled = true;
-    setStatus('Голосовой ввод не поддерживается этим браузером (нужен Chrome или Safari)', 'err');
-  } else {
-    // iOS Safari: «подвисший» экземпляр распознавания — частая причина
-    // «микрофон не включается» и «не останавливается». Поэтому каждый запуск —
-    // на СВЕЖЕМ экземпляре, остановка страхуется принудительным abort().
-    var startGuard = null, stopGuard = null;
-
-    // webStop/webStart объявлены как var на верхнем уровне скрипта —
-    // их вызывают dlgListen/dlgStart/dlgStop
-    recogReset = function(){
-      listening = false;
-      micBtn.classList.remove('rec');
-      if (startGuard){ clearTimeout(startGuard); startGuard = null; }
-      if (stopGuard){ clearTimeout(stopGuard); stopGuard = null; }
-    };
-
-    makeRecog = function(){
-      var r = new SR();
-      r.continuous = false;
-      r.interimResults = true;
-      r.maxAlternatives = 1;
-      r.onstart = function(){
-        listening = true;
-        micBtn.classList.add('rec');
-        if (dialogMode){
-          dlgSetState('listening', dlgCurLang || dir.split('2')[0]);
-        } else {
-          setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
-        }
-      };
-      r.onresult = function(ev){
-        var final = '', interim = '';
-        for (var i = ev.resultIndex; i < ev.results.length; i++){
-          if (ev.results[i].isFinal) final += ev.results[i][0].transcript;
-          else interim += ev.results[i][0].transcript;
-        }
-        if (final) input.value = final;
-        else if (interim) input.value = interim;
-        if (final){ input.value = final;
-          window._dlgEmptyEnds = 0;
-          if (dialogMode){ window._dlgFinalAt = Date.now(); dlgTranslate(final); return; }
-          clearTimeout(trTimer);
-          if ($('autoTr').checked) translateNow();
-        }
-      };
-      r.onerror = function(ev){
-        if (r._killed) return;   // убили сами — это не ошибка
-        var m = { 'not-allowed':'Нет доступа к микрофону — разрешите его в настройках',
-                  'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
-        listening = false;
-        micBtn.classList.remove('rec');
-        dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
-      };
-      r.onend = function(){
-        var killed = !!r._killed;
-        var hadFinal = window._dlgFinalAt && (Date.now() - window._dlgFinalAt < 4000);
-        var hadErr = window._dlgErrAt && (Date.now() - window._dlgErrAt < 3000);
-        recogReset();
-        if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
-        if (killed) return;   // наша плановая остановка — новый запуск уже позаботится о себе
-        // Сессия кончилась без финального текста и без ошибки — молча перезапускаем,
-        // иначе диалог умирает без единого сообщения
-        if (dialogMode && !hadFinal && !hadErr){
-          // пустых концов подряд всё больше — растущий таймаут, чтобы не крутить
-          // петлю старт/стоп в темпе метронома
-          window._dlgEmptyEnds = (window._dlgEmptyEnds || 0) + 1;
-          var delay = 700 + Math.min(window._dlgEmptyEnds, 6) * 400;
-          setTimeout(function(){ if (dialogMode && !listening) dlgListen(); }, delay);
-        }
-      };
-      return r;
-    };
-
-    webStop = function(){
-      // помечаем экземпляр как убитый НАМИ: его onerror('aborted')/onend —
-      // не ошибка и не повод перезапускать прослушивание (иначе каскад рестартов)
-      try{ if (recog){ recog._killed = true; recog.abort(); } }catch(e){}
-      recog = null;
-      recogReset();
-    };
-
-    webStart = function(){
-      if (listening) return;
-      recog = makeRecog();
-      try{
-        recog.lang = BCP[(dialogMode && dlgCurLang) ? dlgCurLang : dir.split('2')[0]];
-        recog.start();
-      }catch(e){
-        // «уже запущен» или разовый сбой — рвём и пробуем ещё раз через 600 мс
-        webStop();
-        setTimeout(function(){
-          if (listening) return;
-          recog = makeRecog();
-          try{ recog.lang = BCP[(dialogMode && dlgCurLang) ? dlgCurLang : dir.split('2')[0]]; recog.start(); }
-          catch(e2){ setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err'); }
-        }, 600);
-        return;
-      }
-      // страховка: если за 4 сек микрофон так и не включился — сброс
-      startGuard = setTimeout(function(){
-        if (!listening){
-          webStop();
-          if (dialogMode){ setTimeout(dlgListen, 800); }
-          else setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err');
-        }
-      }, 4000);
-    };
-
-    micBtn.addEventListener('click', function(){
-      if (dialogMode){ dlgListen(); return; }
-      if (listening){
-        // остановка: stop() + страховка abort() — иначе iOS может не остановиться
-        if (stopGuard) clearTimeout(stopGuard);
-        try{ if (recog) recog.stop(); }catch(e){ webStop(); return; }
-        stopGuard = setTimeout(function(){ webStop(); }, 2500);
-        return;
-      }
-      webStart();
-    });
-  }
-}
-
-// ---------- история-чат ----------
-function addHistory(src, dst, sl, tl){
-  var who = dialogMode ? (window._lastSpk || sl) : 'you';
-  dialogLog.unshift({ who:who, src:src, dst:dst, sl:sl, tl:tl });
-  if (dialogLog.length > 50) dialogLog.pop();
-  renderHistory();
-}
-function makeBubble(it){
-  var who, cls;
-  if (it.who === 'ko'){ who = '🇰🇵 КОРЕЕЦ'; cls = 'them'; }
-  else if (it.who === 'ru'){ who = '🇷🇺 РУССКИЙ'; cls = 'me'; }
-  else { who = 'ВЫ'; cls = 'me'; }
-  var d = document.createElement('div');
-  d.className = 'msg ' + cls;
-  d.innerHTML = '<div class="who"></div><div class="orig"></div><div class="dst"></div>';
-  d.querySelector('.who').textContent = who;
-  d.querySelector('.orig').textContent = it.src;
-  d.querySelector('.dst').textContent = it.dst;
-  d.addEventListener('click', function(){
-    // тап по сообщению: показать и снова озвучить
-    input.value = it.src;
-    lastResult = it.dst;
-    output.textContent = it.dst;
-    output.classList.remove('empty');
-    showRoman(it.dst, it.tl, null);
-    speak(it.dst, it.tl);
-    window.scrollTo(0, 0);
-  });
-  return d;
-}
-function renderHistory(){
-  var h = $('history');
-  h.innerHTML = '';
-  if (!dialogLog.length){ h.innerHTML = '<div class="h-empty">История пуста</div>'; return; }
-  dialogLog.slice().reverse().forEach(function(it){
-    h.appendChild(makeBubble(it));
-  });
-  h.scrollTop = h.scrollHeight;
-}
-$('chatExpand').addEventListener('click', function(){
-  var list = $('chatFullList');
-  list.innerHTML = '';
-  if (!dialogLog.length) list.innerHTML = '<div class="h-empty">История пуста</div>';
-  dialogLog.slice().reverse().forEach(function(it){ list.appendChild(makeBubble(it)); });
-  list.scrollTop = list.scrollHeight;
-  $('chatFull').classList.remove('hidden');
-});
-$('chatClose').addEventListener('click', function(){ $('chatFull').classList.add('hidden'); });
+/* голоса подгружаются асинхронно — стартуем загрузку сразу */
+if ('speechSynthesis' in window) loadVoices();
+else showErr('Браузер не поддерживает синтез речи. Откройте в Chrome или Safari.');
 </script>
 </body>
 </html>
