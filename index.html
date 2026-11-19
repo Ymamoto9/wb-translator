@@ -1144,7 +1144,9 @@ function dlgListen(){
       finalizedFlag = false;
       setTimeout(function(){ if (dialogMode && listening) startVolLoop(); }, 400);
     }
-    setTimeout(function(){ if (dialogMode) webStart(); }, 250);
+    // на iOS пауза длиннее: прогрев синтезатора (короткая «а») должен
+    // закончиться ДО старта распознавания, иначе оно молча не включается
+    setTimeout(function(){ if (dialogMode) webStart(); }, IS_IOS ? 1000 : 250);
   }
 }
 
@@ -1419,7 +1421,7 @@ if (NATIVE){
         stopGuard = setTimeout(function(){ webStop(); }, 2500);
         return;
       }
-      webStart();
+      if (IS_IOS){ setTimeout(webStart, 900); } else { webStart(); }
     });
   }
 }
