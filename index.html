@@ -1072,12 +1072,10 @@ function startVolLoop(){
     var v = rms();
     var now = Date.now();
     if (v > VOL_TRESH){ lastLoudAt = now; speechSeen = true; }
-    // конец речи: был громкий кусок и тишина дольше 1.2 с — завершаем распознавание
-    if (speechSeen && now - lastLoudAt > 1200 && !finalizedFlag){
-      finalizedFlag = true;
-      try{ if (recog) recog.stop(); }catch(e){}
-      return;
-    }
+    // ВАЖНО: метр НЕ останавливает распознаватель. Chrome сам определяет конец
+    // фразы и сам отдаёт финальный текст. Ручной recog.stop() на шумном складе
+    // давал бесконечный цикл: шум = «речь», 1.2 с тишины = стоп без результата.
+    // Метр нужен только для сторожа полной тишины ниже.
     // тишина с самого начала дольше 9 с — на этом языке никто не говорит
     // (человек может думать перед ответом), переключаем язык прослушивания
     if (!speechSeen && now - listenStartedAt > 9000){
@@ -1388,6 +1386,7 @@ if (NATIVE){
         if (final) input.value = final;
         else if (interim) input.value = interim;
         if (final){ input.value = final;
+          window._dlgEmptyEnds = 0;
           if (dialogMode){ window._dlgFinalAt = Date.now(); dlgTranslate(final); return; }
           clearTimeout(trTimer);
           if ($('autoTr').checked) translateNow();
@@ -1408,7 +1407,11 @@ if (NATIVE){
         // Метр остановил распознаватель, но Chrome не выдал финальный текст —
         // молча перезапускаем прослушивание, иначе диалог умирает без ошибок
         if (dialogMode && !hadFinal && !hadErr){
-          setTimeout(function(){ if (dialogMode && !listening) dlgListen(); }, 700);
+          // пустых концов подряд всё больше — растущий таймаут, чтобы не крутить
+          // петлю старт/стоп в темпе метронома
+          window._dlgEmptyEnds = (window._dlgEmptyEnds || 0) + 1;
+          var delay = 700 + Math.min(window._dlgEmptyEnds, 6) * 400;
+          setTimeout(function(){ if (dialogMode && !listening) dlgListen(); }, delay);
         }
       };
       return r;
