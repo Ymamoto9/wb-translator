@@ -1033,7 +1033,7 @@ function tone(freq, dur, delay){
     o.start(t0); o.stop(t0 + dur);
   }catch(e){}
 }
-function beepAccepted(){ tone(920, 0.09); tone(1240, 0.09, 0.1); }
+function beepAccepted(){ tone(1000, 0.08); }
 function beepSent(){ tone(660, 0.07); tone(660, 0.07, 0.12); }
 
 // ---------- измеритель громкости микрофона (громкость = речь, тишина = шум) ----------
@@ -1119,7 +1119,11 @@ function dlgListenLang(){
 function dlgSetState(kind, lang){
   var dot = $('dlgDot'), txt = $('dlgText');
   dot.className = 'dot ' + kind;
-  if (kind === 'listening')        txt.textContent = '🎤 Слушаю: ' + LANG[lang] + (dlgExpect === 'auto' ? ' (авто)' : '');
+  if (kind === 'listening'){
+    txt.textContent = (lang === 'both')
+      ? '🎤 Слушаю: русский + корейский (оба языка)'
+      : '🎤 Слушаю: ' + LANG[lang] + (dlgExpect === 'auto' ? ' (авто)' : '');
+  }
   else if (kind === 'translating') txt.textContent = '⏳ Перевожу…';
   else if (kind === 'speaking')    txt.textContent = '🔊 Озвучиваю: ' + LANG[lang];
   else txt.textContent = 'Готов';
@@ -1150,18 +1154,19 @@ function dlgListen(){
   }
 }
 
-function dlgTranslate(text){
+function dlgTranslate(text, forced, conf){
   input.value = text;
-  var det = detectLang(text);
-  // мусор: распознавание не на том языке даёт текст без хангыля и кириллицы —
-  // отбрасываем и переключаем язык прослушивания
+  var det = forced || detectLang(text);
+  // мусор: нераспознаваемый язык ИЛИ низкая уверенность распознавателя
+  // в диалоге (чужая речь/шум) — НЕМЕДЛЕННО переключаем язык прослушивания
   var letters = text.replace(/\s/g, '').length;
   var hang = (text.match(/[가-힣]/g) || []).length;
   var cyr = (text.match(/[а-яё]/gi) || []).length;
-  if (!det && letters > 0 && (hang + cyr) < letters * 0.5){
-    dlgFlip = true;
-    dlgMisses = 0;
-    setStatus('Не тот язык прослушивания — переключаю', 'err');
+  var garbage = det === null && letters > 0 && (hang + cyr) < letters * 0.5;
+  if (dialogMode && typeof conf === 'number' && conf >= 0 && conf < 0.3) garbage = true;
+  if (garbage){
+    if (dlgExpect === 'auto') dlgFlip = true;
+    setStatus('Не тот язык прослушивания — переключаюсь…', 'err');
     setTimeout(dlgListen, 800);
     return;
   }
@@ -1212,14 +1217,8 @@ function dlgOnListenError(msg, code){
     dlgMisses = 0;
     setTimeout(dlgListen, 1200);
   } else if (dialogMode && silence){
-    dlgMisses++;
-    if (dlgMisses >= 3 && dlgExpect === 'auto'){
-      dlgFlip = true;
-      dlgMisses = 0;
-      setStatus('Долго тишина — пробую другой язык', 'err');
-    } else {
-      setStatus('Тишина — слушаю…');
-    }
+    // полная тишина: язык НЕ переключаем, просто слушаем дальше
+    setStatus('Тишина — слушаю…');
     setTimeout(dlgListen, 1500);
   } else if (dialogMode){
     dlgErrStreak++;
@@ -1278,12 +1277,17 @@ window.appOpenMic = function(){
   AndroidBridge.startListen(BCP[dir.split('2')[0]]);
 };
 
-// язык прослушивания: АВТО / РУС / КОР
+// язык прослушивания: АВТО / РУС / КОР — применяется мгновенно
 function setExp(v){
   dlgExpect = v;
   $('expAuto').classList.toggle('active', v === 'auto');
   $('expRu').classList.toggle('active', v === 'ru');
   $('expKo').classList.toggle('active', v === 'ko');
+  if (dialogMode){
+    dlgFlip = false;
+    dlgMisses = 0;
+    dlgListen();   // сразу перезапустить прослушивание с новым языком
+  }
 }
 $('expAuto').addEventListener('click', function(){ setExp('auto'); });
 $('expRu').addEventListener('click', function(){ setExp('ru'); });
@@ -1305,11 +1309,11 @@ if (NATIVE){
     }
   };
   window.onNativePartial = function(t){ input.value = t; };
-  window.onNativeFinal = function(t){
+  window.onNativeFinal = function(text, conf){
     listening = false;
     micBtn.classList.remove('rec');
-    if (dialogMode){ dlgTranslate(t); return; }
-    input.value = t;
+    if (dialogMode){ dlgTranslate(text, null, conf); return; }
+    input.value = text;
     clearTimeout(trTimer);
     if ($('autoTr').checked) translateNow();
   };
@@ -1322,13 +1326,11 @@ if (NATIVE){
     $('dlgBtn').disabled = true;
     setStatus('Голосовой ввод не поддерживается этим браузером (нужен Chrome или Safari)', 'err');
   } else {
-    // iOS Safari: «подвисший» экземпляр распознавания — частая причина
-    // «микрофон не включается» и «не останавливается». Поэтому каждый запуск —
-    // на СВЕЖЕМ экземпляре, остановка страхуется принудительным abort().
+    // ДВА ПОТОКА РАСПОЗНАВАНИЯ (русский + корейский) — в режиме диалога
+    // слушаем ОБА ЯЗЫКА ОДНОВРЕМЕННО. Язык говорящего определяем по
+    // письменности результата: хангыль = кореец, кириллица = русский.
     var startGuard = null, stopGuard = null;
 
-    // webStop/webStart объявлены как var на верхнем уровне скрипта —
-    // их вызывают dlgListen/dlgStart/dlgStop
     recogReset = function(){
       listening = false;
       micBtn.classList.remove('rec');
@@ -1336,7 +1338,7 @@ if (NATIVE){
       if (stopGuard){ clearTimeout(stopGuard); stopGuard = null; }
     };
 
-    makeRecog = function(){
+    makeRecog = function(l, dialog){
       var r = new SR();
       r.continuous = false;
       r.interimResults = true;
@@ -1344,8 +1346,8 @@ if (NATIVE){
       r.onstart = function(){
         listening = true;
         micBtn.classList.add('rec');
-        if (dialogMode){
-          dlgSetState('listening', dir.split('2')[0]);
+        if (dialog){
+          dlgSetState('listening', 'both');
         } else {
           setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
         }
@@ -1356,72 +1358,112 @@ if (NATIVE){
           if (ev.results[i].isFinal) final += ev.results[i][0].transcript;
           else interim += ev.results[i][0].transcript;
         }
-        if (final) input.value = final;
-        else if (interim) input.value = interim;
         if (final){
-          if (dialogMode){ dlgTranslate(final); return; }
+          if (dialog){
+            // валидация: экземпляр должен вернуть СВОЙ язык, иначе мусор
+            var hang = (final.match(/[가-힣]/g) || []).length;
+            var cyr = (final.match(/[а-яёА-ЯЁ]/g) || []).length;
+            var ok = (l === 'ko') ? (hang >= cyr && hang > 0) : (cyr >= hang && cyr > 0);
+            if (!ok) return;   // чужая речь/шум — игнорируем, ждём свой язык
+            stopAll(l);        // второй поток глушим, слово принято
+            dlgTranslate(final, l);
+            return;
+          }
+          input.value = final;
           clearTimeout(trTimer);
           if ($('autoTr').checked) translateNow();
+        } else if (interim){
+          input.value = interim;
         }
       };
       r.onerror = function(ev){
         var m = { 'not-allowed':'Нет доступа к микрофону — разрешите его в настройках',
                   'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
-        listening = false;
-        micBtn.classList.remove('rec');
-        dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
+        if (dialog){
+          if (dual[l] === r) dual[l] = null;
+          if (!dual.ru && !dual.ko){
+            dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
+          } else {
+            // второй поток жив — перезапускаем умерший через паузу
+            var dead = l;
+            setTimeout(function(){
+              if (dialogMode && !dual[dead] && !listening){
+                var r2 = makeRecog(dead, true);
+                try{ r2.lang = BCP[dead]; r2.start(); dual[dead] = r2; }catch(e){}
+              }
+            }, 1500);
+          }
+        } else {
+          listening = false;
+          micBtn.classList.remove('rec');
+          setStatus(m[ev.error] || ('Ошибка микрофона: ' + ev.error), 'err');
+        }
       };
       r.onend = function(){
-        recogReset();
-        if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
+        if (dialog && dual[l] === r) dual[l] = null;
+        if (!dialog && manualRecog === r) manualRecog = null;
+        if (!dialog || (!dual.ru && !dual.ko)){
+          recogReset();
+          if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
+        }
       };
       return r;
     };
 
+    stopLang = function(l){
+      try{ if (dual[l]) dual[l].abort(); }catch(e){}
+      dual[l] = null;
+    };
+
     webStop = function(){
-      try{ if (recog) recog.abort(); }catch(e){}
-      recog = null;
+      try{ if (manualRecog) manualRecog.abort(); }catch(e){}
+      manualRecog = null;
+      stopLang('ru');
+      stopLang('ko');
       recogReset();
     };
 
+    // диалог: оба языка слушаем одновременно
     webStart = function(){
       if (listening) return;
-      recog = makeRecog();
+      var started = 0;
+      ['ru', 'ko'].forEach(function(l){
+        var r = makeRecog(l, true);
+        try{ r.lang = BCP[l]; r.start(); dual[l] = r; started++; }catch(e){}
+      });
+      if (started === 0) setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err');
+    };
+
+    // ручной режим: один поток, язык текущего направления
+    webStartManual = function(){
+      if (listening) return;
+      var l = dir.split('2')[0];
+      var r = makeRecog(l, false);
       try{
-        recog.lang = BCP[dir.split('2')[0]];
-        recog.start();
+        r.lang = BCP[l];
+        r.start();
+        manualRecog = r;
       }catch(e){
-        // «уже запущен» или разовый сбой — рвём и пробуем ещё раз через 600 мс
-        webStop();
-        setTimeout(function(){
-          if (listening) return;
-          recog = makeRecog();
-          try{ recog.lang = BCP[dir.split('2')[0]]; recog.start(); }
-          catch(e2){ setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err'); }
-        }, 600);
+        setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err');
         return;
       }
-      // страховка: если за 4 сек микрофон так и не включился — сброс
-      startGuard = setTimeout(function(){
-        if (!listening){
-          webStop();
-          if (dialogMode){ setTimeout(dlgListen, 800); }
-          else setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err');
-        }
-      }, 4000);
+      if (IS_IOS){
+        startGuard = setTimeout(function(){
+          if (!listening){ webStop(); setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err'); }
+        }, 4000);
+      }
     };
 
     micBtn.addEventListener('click', function(){
       unlockTTS();   // прямой жест: разблокировка звука для iOS
       if (dialogMode){ dlgListen(); return; }
       if (listening){
-        // остановка: stop() + страховка abort() — иначе iOS может не остановиться
         if (stopGuard) clearTimeout(stopGuard);
-        try{ if (recog) recog.stop(); }catch(e){ webStop(); return; }
+        try{ if (manualRecog) manualRecog.stop(); }catch(e){ webStop(); return; }
         stopGuard = setTimeout(function(){ webStop(); }, 2500);
         return;
       }
-      if (IS_IOS){ setTimeout(webStart, 900); } else { webStart(); }
+      if (IS_IOS){ setTimeout(webStartManual, 900); } else { webStartManual(); }
     });
   }
 }
