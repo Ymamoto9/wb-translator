@@ -289,13 +289,15 @@ var dlgMisses = 0;             // подряд неудачных прослуш
 var dlgFlip = false;           // принудительно сменить язык прослушивания
 var recog = null;
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-var recogReset = null, makeRecog = null, webStop = null, webStart = null;   // назначаются в браузерной ветке ниже
+var recogReset = null, makeRecog = null, webStop = null, webStart = null;
+var dualBroken = false;   // платформа не тянет два потока — одиночный режим
+var dualListening = false; // сейчас работают оба потока
 
 var LANG = { ru:'РУССКИЙ', ko:'КОРЕЙСКИЙ' };
 var SHORT = { ru:'РУС', ko:'КОР' };
 var BCP  = { ru:'ru-RU', ko:'ko-KR' };
 var NATIVE = !!(window.AndroidBridge && window.AndroidBridge.startListen);
-var APP_VERSION = 'v2.3';   // не забывать обновлять при новых релизах
+var APP_VERSION = 'v2.4';   // не забывать обновлять при новых релизах
 $('verLabel').textContent = 'Переводчик RWB ' + APP_VERSION;
 
 // ---- инфо ----
@@ -935,8 +937,9 @@ function speakGT(text, lang, onend, onfail){
     a.onended = fin;
     var p = a.play();
     if (p && p.catch) p.catch(function(){ fail(); });
-    // страховка: если за 5 с звук так и не пошёл — системный голос
-    setTimeout(function(){ if (!done && (!a.currentTime || a.paused && !a.ended)) fail(); }, 5000);
+    // страховка: если звук так и не пошёл (currentTime = 0) — системный голос.
+    // если пошёл (currentTime > 0) — НИЧЕГО не делаем, иначе получится двойная озвучка
+    setTimeout(function(){ if (!done && !(a.currentTime > 0)) fail(); }, 5000);
   }catch(e){ if (onfail) onfail(); }
 }
 
@@ -1152,7 +1155,10 @@ function dlgListen(){
     }
     // на iOS пауза длиннее: прогрев синтезатора (короткая «а») должен
     // закончиться ДО старта распознавания, иначе оно молча не включается
-    setTimeout(function(){ if (dialogMode) webStart(); }, IS_IOS ? 1000 : 250);
+    setTimeout(function(){
+      if (!dialogMode) return;
+      if (dualBroken){ webStartSingle(); } else { webStart(); }
+    }, IS_IOS ? 1000 : 250);
   }
 }
 
@@ -1204,7 +1210,7 @@ function dlgRun(text, sl, tl){
 // код 1 = полная тишина → остаёмся на том же языке;
 // ошибки сервиса (5 и др.) — не переключают язык вовсе
 var dlgErrStreak = 0;
-function dlgOnListenError(msg, code){
+function dlgOnListenError(msg, code, deadLang){
   listening = false;
   micBtn.classList.remove('rec');
   var silence = (code === 1 || code === 'aborted');
@@ -1225,12 +1231,29 @@ function dlgOnListenError(msg, code){
   } else if (dialogMode){
     dlgErrStreak++;
     setStatus(msg, 'err');
+    // iOS и некоторые браузеры не держат два потока распознавания —
+    // переходим на одиночный с быстрым переключением языка
+    if (code === 'service-not-allowed' || code === 'not-allowed' || code === 'audio-capture'){
+      dualBroken = true;
+    }
+    if (dualBroken){
+      webStop();
+      if (dlgExpect === 'auto') dlgFlip = true;
+      setTimeout(dlgListen, 1000);
+      return;
+    }
     if (dlgErrStreak >= 4){
       dlgErrStreak = 0;
       setStatus('Распознавание не отвечает на языке ' + LANG[dlgListenLang()] +
         '. Проверьте интернет и обновление приложения Google (Android)', 'err');
     }
-    setTimeout(dlgListen, 2500);
+    var dead = deadLang || dlgListenLang();
+    setTimeout(function(){
+      if (dialogMode && !dual[dead] && !listening){
+        var r2 = makeRecog(dead, true);
+        try{ r2.lang = BCP[dead]; r2.start(); dual[dead] = r2; }catch(e){}
+      }
+    }, 1500);
   } else {
     setStatus(msg, 'err');
   }
@@ -1320,7 +1343,7 @@ if (NATIVE){
     if ($('autoTr').checked) translateNow();
   };
   window.onNativeError = function(msg, code){
-    dlgOnListenError(msg, code);
+    dlgOnListenError(msg, code, dlgListenLang());
   };
 } else {
   if (!SR){
@@ -1349,7 +1372,7 @@ if (NATIVE){
         listening = true;
         micBtn.classList.add('rec');
         if (dialog){
-          dlgSetState('listening', 'both');
+          dlgSetState('listening', dualListening ? 'both' : l);
         } else {
           setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
         }
@@ -1384,7 +1407,7 @@ if (NATIVE){
         if (dialog){
           if (dual[l] === r) dual[l] = null;
           if (!dual.ru && !dual.ko){
-            dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
+            dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error, l);
           } else {
             // второй поток жив — перезапускаем умерший через паузу
             var dead = l;
@@ -1422,10 +1445,23 @@ if (NATIVE){
       manualRecog = null;
       stopLang('ru');
       stopLang('ko');
+      dualListening = false;
       recogReset();
     };
 
+    // одиночный режим (когда два потока не работают): язык по dlgListenLang,
+    // смена языка через dlgFlip / dlgExpect
+    webStartSingle = function(){
+      if (listening) return;
+      var l = dlgListenLang();
+      dlgSetState('listening', l);
+      var r = makeRecog(l, true);
+      try{ r.lang = BCP[l]; r.start(); dual[l] = r; }
+      catch(e){ setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err'); }
+    };
+
     // диалог: оба языка слушаем одновременно
+    dualListening = true;
     webStart = function(){
       if (listening) return;
       var started = 0;
