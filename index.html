@@ -855,8 +855,8 @@ function unlockTTS(){
   if (NATIVE || ttsUnlocked || !SR && !('speechSynthesis' in window)) return;
   try{
     speechSynthesis.getVoices();
-    var u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0.01;
+    var u = new SpeechSynthesisUtterance('а');
+    u.volume = 0.03;   // чуть слышно — iOS засчитывает только реальную речь
     speechSynthesis.speak(u);
   }catch(e){}
   try{
@@ -928,34 +928,54 @@ function speakGT(text, lang, onend, onfail){
   }catch(e){ if (onfail) onfail(); }
 }
 
-// системный синтезатор (офлайн-запасной вариант)
+// системный синтезатор (на iOS — основной способ озвучки)
 function sysSpeak(text, lang, onend){
   if (!('speechSynthesis' in window)){ if (onend) onend(); return; }
   try{
-    speechSynthesis.cancel();
-    var u = new SpeechSynthesisUtterance(text);
-    u.lang = BCP[lang];
-    var v = pickVoice(lang);
-    if (v) u.voice = v;
-    u.rate = 0.9; // чуть медленнее — понятнее для диалога
     var finished = false;
     var fin = function(){
       if (finished) return;
       finished = true;
       if (onend) onend();
     };
-    u.onend = fin;
-    u.onerror = function(){
-      if (!v && !finished){
-        setStatus('Нет голоса для языка ' + LANG[lang] + ': на iPhone — Настройки → Универсальный доступ → Проговаривание речи → Голоса', 'err');
-      }
-      fin();
+    var attach = function(){
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = BCP[lang];
+      var v = pickVoice(lang);
+      if (v) u.voice = v;
+      u.rate = 0.95;
+      u.onend = fin;
+      u.onerror = function(ev){
+        if (!v && !finished){
+          setStatus('Нет голоса для языка ' + LANG[lang] + ': на iPhone — Настройки → Универсальный доступ → Проговаривание речи → Голоса', 'err');
+        }
+        fin();
+      };
+      window._curUtter = u;   // iOS: без ссылки фраза может «испариться»
+      speechSynthesis.speak(u);
+      // страховка от молчания iOS: если события не пришли — продолжаем
+      setTimeout(fin, Math.max(8000, text.length * 150));
     };
-    speechSynthesis.speak(u);
-    // страховка: если iOS вообще не вызвал события — продолжаем через 15 сек
-    setTimeout(fin, 15000);
+    // iOS подгружает список голосов асинхронно — без него выбор голоса не работает
+    var vs = speechSynthesis.getVoices();
+    if (vs && vs.length){
+      attach();
+    } else {
+      var waited = false;
+      var w = function(){
+        if (waited) return;
+        waited = true;
+        try{ speechSynthesis.removeEventListener('voiceschanged', w); }catch(e){ speechSynthesis.onvoiceschanged = null; }
+        attach();
+      };
+      try{ speechSynthesis.addEventListener('voiceschanged', w); }catch(e){ speechSynthesis.onvoiceschanged = w; }
+      setTimeout(w, 1500);
+    }
   }catch(e){ if (onend) onend(); }
 }
+
+var IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+             (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 function speak(text, lang, onend){
   if (!text){ if (onend) onend(); return; }
@@ -964,19 +984,23 @@ function speak(text, lang, onend){
     AndroidBridge.speak(text, lang);
     return;
   }
-  if (!('speechSynthesis' in window) && !window.Audio){ if (onend) onend(); return; }
   unlockTTS();
   var parts = splitForTTS(text, 180);
   var idx = 0;
   var playNext = function(){
     if (idx >= parts.length){ if (onend) onend(); return; }
     var p = parts[idx++];
-    speakGT(p, lang, playNext, function(){
-      // онлайн-голос не удался — озвучиваем остаток системным голосом
-      var rest = (p + ' ' + parts.slice(idx).join(' ')).trim();
-      idx = parts.length;
-      sysSpeak(rest, lang, onend);
-    });
+    if (IS_IOS){
+      // на iOS надёжнее всего системный синтезатор (женский корейский голос «Yuna»)
+      sysSpeak(p, lang, playNext);
+    } else {
+      speakGT(p, lang, playNext, function(){
+        // онлайн-голос не удался — озвучиваем остаток системным голосом
+        var rest = (p + ' ' + parts.slice(idx).join(' ')).trim();
+        idx = parts.length;
+        sysSpeak(rest, lang, onend);
+      });
+    }
   };
   playNext();
 }
