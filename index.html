@@ -488,16 +488,53 @@ function setStatus(msg, cls){
   statusEl.className = cls || '';
 }
 
-function mtFetch(q, sl, tl, done){
-  var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
-  fetch(url)
-    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(data){
+// Серверы перевода по очереди: если основной недоступен (например, VPN
+// режет запросы к translate.googleapis.com), пробуем запасные
+var MT_ENDPOINTS = [
+  function(q, sl, tl){
+    return 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
+  },
+  function(q, sl, tl){
+    return 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
+  },
+  function(q, sl, tl){
+    return 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(q) + '&langpair=' + sl + '|' + tl;
+  }
+];
+
+function parseMT(data, ep){
+  try{
+    if (ep === 0){
       var out = '';
       data[0].forEach(function(seg){ if (seg[0]) out += seg[0]; });
-      done(out);
-    })
-    .catch(function(){ done(null); });
+      return out || null;
+    }
+    if (ep === 1){ // dict-chrome-ex: ["перевод"] или [[["перевод",...]]]
+      if (typeof data[0] === 'string') return data[0];
+      if (data[0] && typeof data[0][0] === 'string') return data[0][0];
+      if (data[0] && data[0][0] && typeof data[0][0][0] === 'string') return data[0][0][0];
+      return null;
+    }
+    if (ep === 2){
+      return (data && data.responseData && data.responseData.translatedText) || null;
+    }
+  }catch(e){ return null; }
+  return null;
+}
+
+function mtFetch(q, sl, tl, done){
+  var attempt = function(ep){
+    if (ep >= MT_ENDPOINTS.length){ done(null); return; }
+    fetch(MT_ENDPOINTS[ep](q, sl, tl))
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(data){
+        var out = parseMT(data, ep);
+        if (out) done(out);
+        else attempt(ep + 1);
+      })
+      .catch(function(){ attempt(ep + 1); });
+  };
+  attempt(0);
 }
 
 // cb(ok, outText)
@@ -516,7 +553,7 @@ function doTranslate(text, sl, tl, cb){
     mtFetch(g.text, sl, tl, function(out){
       if (!out){
         busy = false;
-        setStatus('Ошибка перевода (проверьте интернет)', 'err');
+        setStatus('Ошибка перевода. Возможно, мешает VPN — смените сервер или выключите его', 'err');
         cb(false, null);
         return;
       }
@@ -546,7 +583,7 @@ function doTranslate(text, sl, tl, cb){
             cb(true, raw);
           } else {
             busy = false;
-            setStatus('Ошибка перевода (проверьте интернет)', 'err');
+            setStatus('Ошибка перевода. Возможно, мешает VPN — смените сервер или выключите его', 'err');
             cb(false, null);
           }
         });
@@ -612,6 +649,39 @@ $('copy').addEventListener('click', function(){
 });
 
 // ---------- озвучка ----------
+// iOS Safari: синтез речи работает только после первого пользовательского
+// жеста — «разблокируем» пустой utterance на первое касание/клик
+var ttsUnlocked = false;
+function unlockTTS(){
+  if (NATIVE || ttsUnlocked || !('speechSynthesis' in window)) return;
+  try{
+    speechSynthesis.getVoices();   // заодно прогреваем список голосов
+    var u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    ttsUnlocked = true;
+  }catch(e){}
+}
+document.addEventListener('touchstart', unlockTTS, {passive:true});
+document.addEventListener('click', unlockTTS, {passive:true});
+try{
+  if ('speechSynthesis' in window && speechSynthesis.addEventListener){
+    speechSynthesis.addEventListener('voiceschanged', function(){ speechSynthesis.getVoices(); });
+  }
+}catch(e){}
+
+// iOS иногда игнорирует u.lang без явного u.voice — ищем голос по языку
+function pickVoice(lang){
+  try{
+    var vs = speechSynthesis.getVoices() || [];
+    for (var i = 0; i < vs.length; i++){
+      var vl = (vs[i].lang || '').toLowerCase().replace('_','-');
+      if (vl.indexOf(lang) === 0) return vs[i];
+    }
+  }catch(e){}
+  return null;
+}
+
 function speak(text, lang, onend){
   if (!text){ if (onend) onend(); return; }
   if (NATIVE){
@@ -620,13 +690,30 @@ function speak(text, lang, onend){
     return;
   }
   if (!('speechSynthesis' in window)){ if (onend) onend(); return; }
+  unlockTTS();
   try{
     speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text);
     u.lang = BCP[lang];
+    var v = pickVoice(lang);
+    if (v) u.voice = v;
     u.rate = 0.9; // чуть медленнее — понятнее для диалога
-    if (onend) u.onend = function(){ onend(); };
+    var finished = false;
+    var fin = function(){
+      if (finished) return;
+      finished = true;
+      if (onend) onend();
+    };
+    u.onend = fin;
+    u.onerror = function(){
+      if (!v && !finished){
+        setStatus('Нет голоса для языка ' + LANG[lang] + ': на iPhone — Настройки → Универсальный доступ → Проговаривание речи → Голоса', 'err');
+      }
+      fin();
+    };
     speechSynthesis.speak(u);
+    // страховка: если iOS вообще не вызвал события — продолжаем через 15 сек
+    setTimeout(fin, 15000);
   }catch(e){ if (onend) onend(); }
 }
 window.onNativeSpeakDone = function(){
