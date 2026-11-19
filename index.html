@@ -69,6 +69,27 @@
   }
   .hidden{display:none !important;}
   .dlg-state{display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px;}
+  .dlg-banner{
+    display:flex; align-items:center; gap:10px;
+    border-radius:12px; padding:14px 12px;
+    font-weight:900; font-size:19px; letter-spacing:.3px;
+    border:2px solid var(--line); background:#f2f0f5; color:var(--ink);
+  }
+  .dlg-banner.listening{background:#e8f9ef; border-color:var(--ok); color:#0b7a3e;}
+  .dlg-banner.translating{background:#fff6e5; border-color:var(--amber); color:#8a5a00;}
+  .dlg-banner.speaking{background:#fdeafa; border-color:var(--wb-pink); color:#8a1160;}
+  #dlgSwitch{
+    margin-left:auto; flex-shrink:0;
+    border:2px solid currentColor; background:#fff; color:inherit;
+    border-radius:9px; padding:8px 10px; font-size:13px; font-weight:800; cursor:pointer; white-space:nowrap;
+  }
+  #dlgSwitch:active{background:rgba(0,0,0,.06);}
+  #dlgRepeat{
+    border:2px solid var(--wb-pink); background:#fff; color:var(--wb-pink);
+    border-radius:10px; padding:12px; font-size:16px; font-weight:800; cursor:pointer;
+  }
+  #dlgRepeat:disabled{opacity:.45;}
+  #dlgRepeat:active{background:#fdf0fa;}
   .dot{width:14px; height:14px; border-radius:50%; background:var(--muted); flex-shrink:0;}
   .dot.listening{background:var(--ok); animation:pulse 1.1s infinite;}
   .dot.translating{background:var(--amber); animation:pulse .7s infinite;}
@@ -214,13 +235,14 @@
   <button id="dlgBtn">💬 Режим диалога — включить</button>
 
   <div id="dlgActive" class="hidden">
-    <div class="dlg-state"><span class="dot idle" id="dlgDot"></span><span id="dlgText">Готов</span></div>
+    <div class="dlg-banner idle" id="dlgBanner"><span class="dot idle" id="dlgDot"></span><span id="dlgText">Готов</span><button id="dlgSwitch">🔁 КОР ⇄ РУС</button></div>
     <div class="dlg-row">
       <span class="dlg-label">Слушать:</span>
       <button class="seg active" id="expAuto">АВТО</button>
       <button class="seg" id="expRu">РУС</button>
       <button class="seg" id="expKo">КОР</button>
     </div>
+    <button id="dlgRepeat" disabled>🔊 Повторить последнюю фразу</button>
     <button id="dlgStop">■ Остановить диалог</button>
   </div>
 
@@ -288,6 +310,7 @@ var dlgLastSpeaker = null;     // кто говорил последний ра�
 var dlgMisses = 0;             // подряд неудачных прослушек
 var dlgFlip = false;           // принудительно сменить язык прослушивания
 var dlgCurLang = null;         // текущий язык прослушивания диалога (web)
+var lastSpoken = null;         // последняя озвученная фраза диалога {text, lang} — для 🔁 повтор
 var IS_IOS = /iP(hone|od|ad)/.test(navigator.platform || navigator.userAgent) ||
              (navigator.userAgent.indexOf('Mac') > -1 && 'ontouchend' in document);
 var recog = null;
@@ -1068,12 +1091,23 @@ function dlgListenLang(){
 }
 
 function dlgSetState(kind, lang){
-  var dot = $('dlgDot'), txt = $('dlgText');
+  var dot = $('dlgDot'), txt = $('dlgText'), ban = $('dlgBanner'), sw = $('dlgSwitch');
   dot.className = 'dot ' + kind;
-  if (kind === 'listening')        txt.textContent = '🎤 Слушаю: ' + LANG[lang] + (dlgExpect === 'auto' ? ' (авто)' : '');
-  else if (kind === 'translating') txt.textContent = '⏳ Перевожу…';
-  else if (kind === 'speaking')    txt.textContent = '🔊 Озвучиваю: ' + LANG[lang];
-  else txt.textContent = 'Готов';
+  ban.className = 'dlg-banner ' + kind;
+  var cur = dlgListenLang();
+  if (kind === 'listening'){
+    txt.textContent = '🎤 СЛУШАЮ: ' + LANG[cur] + (dlgExpect === 'auto' ? ' (авто)' : '');
+    sw.textContent = '→ ' + SHORT[cur === 'ru' ? 'ko' : 'ru'];
+  } else if (kind === 'translating'){
+    txt.textContent = '⏳ ПЕРЕВОЖУ…';
+    sw.textContent = '🔁 ' + SHORT.ru + ' ⇄ ' + SHORT.ko;
+  } else if (kind === 'speaking'){
+    txt.textContent = '🔊 ОЗВУЧИВАЮ: ' + LANG[lang];
+    sw.textContent = '🔁 ' + SHORT.ru + ' ⇄ ' + SHORT.ko;
+  } else {
+    txt.textContent = 'Готов';
+    sw.textContent = '🔁 ' + SHORT.ru + ' ⇄ ' + SHORT.ko;
+  }
 }
 
 function dlgListen(){
@@ -1135,7 +1169,9 @@ function dlgRun(text, sl, tl){
   doTranslate(text, sl, tl, function(ok, out){
     if (!dialogMode) return;
     if (!ok){ setTimeout(dlgListen, 2000); return; }
-    dlgSetState('speaking', tl);
+      lastSpoken = { text: out, lang: tl };
+      $('dlgRepeat').disabled = false;
+      dlgSetState('speaking', tl);
     beepSent();                      // перевод готов, озвучиваем
     speak(out, tl, function(){
       if (!dialogMode) return;
@@ -1209,6 +1245,33 @@ function dlgStop(){
 
 $('dlgBtn').addEventListener('click', dlgStart);
 $('dlgStop').addEventListener('click', dlgStop);
+
+// мгновенная смена языка прослушивания (лучшая практика: юзер сам решает,
+// не ждём автодогадки); в АВТО — flip, в фиксированном режиме — перещёлкиваем ожидание
+$('dlgSwitch').addEventListener('click', function(){
+  if (!dialogMode) return;
+  if (dlgExpect === 'auto'){ dlgFlip = true; dlgMisses = 0; }
+  else { setExp(dlgExpect === 'ru' ? 'ko' : 'ru'); }
+  dlgListen();
+});
+
+// повтор последней переведённой фразы: глушим прослушивание, чтобы
+// микрофон не слышал сам себя, озвучиваем, потом продолжаем диалог
+$('dlgRepeat').addEventListener('click', function(){
+  if (!lastSpoken) return;
+  if (dialogMode){
+    if (NATIVE){ AndroidBridge.stopListen(); }
+    else if (SR){ webStop(); }
+    listening = false;
+    micBtn.classList.remove('rec');
+    dlgSetState('speaking', lastSpoken.lang);
+    speak(lastSpoken.text, lastSpoken.lang, function(){
+      if (dialogMode){ dlgSetState('idle', null); dlgListen(); }
+    });
+  } else {
+    speak(lastSpoken.text, lastSpoken.lang);
+  }
+});
 
 // запуск микрофона из виджета (нативный вызов после открытия приложения)
 window.appOpenMic = function(){
