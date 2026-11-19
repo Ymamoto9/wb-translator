@@ -658,7 +658,7 @@ function parseRom(data, ep){
     if (ep === 0){
       var rom = '';
       data[0].forEach(function(seg){
-        if (!seg[0] && seg.length > 2 && seg[2]) rom += seg[2];
+        if (!seg[0] && seg.length > 2){ var r = seg[2] || seg[3]; if (r) rom += r; }
       });
       return rom || null;
     }
