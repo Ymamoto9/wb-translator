@@ -740,16 +740,22 @@ function showRoman(out, tl, rom){
 }
 
 function mtFetch(q, sl, tl, done){
+  var settled = false;   // защита от двойного done (таймаут vs ответ)
   var attempt = function(ep){
-    if (ep >= MT_ENDPOINTS.length){ done(null, null); return; }
+    if (settled) return;
+    if (ep >= MT_ENDPOINTS.length){ settled = true; done(null, null); return; }
+    var fin = false;
+    // таймаут 6 с на сервер: подвисший fetch не должен залипать busy навсегда
+    var to = setTimeout(function(){ if (!fin){ fin = true; attempt(ep + 1); } }, 6000);
     fetch(MT_ENDPOINTS[ep](q, sl, tl))
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data){
+        if (fin) return; fin = true; clearTimeout(to);
         var out = parseMT(data, ep);
-        if (out){ done(out, parseRom(data, ep)); }
+        if (out){ settled = true; done(out, parseRom(data, ep)); }
         else attempt(ep + 1);
       })
-      .catch(function(){ attempt(ep + 1); });
+      .catch(function(){ if (fin) return; fin = true; clearTimeout(to); attempt(ep + 1); });
   };
   attempt(0);
 }
@@ -1199,6 +1205,7 @@ var dlgErrStreak = 0;
 function dlgOnListenError(msg, code){
   listening = false;
   micBtn.classList.remove('rec');
+  window._dlgErrAt = Date.now();
   // ошибка крупно на плашке (красным) — иначе юзер её не видит и не может сказать нам причину
   var ban = $('dlgBanner');
   if (ban && dialogMode){
@@ -1380,8 +1387,8 @@ if (NATIVE){
         }
         if (final) input.value = final;
         else if (interim) input.value = interim;
-        if (final){
-          if (dialogMode){ dlgTranslate(final); return; }
+        if (final){ input.value = final;
+          if (dialogMode){ window._dlgFinalAt = Date.now(); dlgTranslate(final); return; }
           clearTimeout(trTimer);
           if ($('autoTr').checked) translateNow();
         }
@@ -1394,8 +1401,15 @@ if (NATIVE){
         dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
       };
       r.onend = function(){
+        var hadFinal = window._dlgFinalAt && (Date.now() - window._dlgFinalAt < 4000);
+        var hadErr = window._dlgErrAt && (Date.now() - window._dlgErrAt < 3000);
         recogReset();
         if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
+        // Метр остановил распознаватель, но Chrome не выдал финальный текст —
+        // молча перезапускаем прослушивание, иначе диалог умирает без ошибок
+        if (dialogMode && !hadFinal && !hadErr){
+          setTimeout(function(){ if (dialogMode && !listening) dlgListen(); }, 700);
+        }
       };
       return r;
     };
