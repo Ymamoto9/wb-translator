@@ -255,7 +255,7 @@
   <div id="history"><div class="h-empty">История пуста</div></div>
 </main>
 
-<footer>Нужен интернет (перевод и голос). Озвучка работает офлайн.</footer>
+<footer>Нужен интернет (перевод и голос). Озвучка работает офлайн. · <span id="verLabel">Переводчик RWB</span></footer>
 
 <div id="infoModal" class="modal hidden">
   <div class="modal-card">
@@ -295,6 +295,8 @@ var LANG = { ru:'РУССКИЙ', ko:'КОРЕЙСКИЙ' };
 var SHORT = { ru:'РУС', ko:'КОР' };
 var BCP  = { ru:'ru-RU', ko:'ko-KR' };
 var NATIVE = !!(window.AndroidBridge && window.AndroidBridge.startListen);
+var APP_VERSION = 'v2.3';   // не забывать обновлять при новых релизах
+$('verLabel').textContent = 'Переводчик RWB ' + APP_VERSION;
 
 // ---- инфо ----
 $('infoBtn').addEventListener('click', function(){ $('infoModal').classList.remove('hidden'); });
