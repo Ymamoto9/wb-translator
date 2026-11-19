@@ -651,7 +651,7 @@ function applyGlossary(text, sl, cb){
       // русские слова склоняются: ищем основу слова + окончание.
       // варианты: полное слово и слово без последней буквы
       var variants = [term];
-      if (/[а-яё]$/i.test(term) && term.length >= 5) variants.push(term.slice(0, -1));
+      if (/[а-яё]$/i.test(term) && term.length >= 4) variants.push(term.slice(0, -1));
       if (term.indexOf(' ') !== -1){
         // в словосочетаниях склоняется только последнее слово
         var parts = term.split(' ');
@@ -1435,7 +1435,8 @@ function dlgStart(){
   $('dlgBtn').classList.add('hidden');
   $('dlgActive').classList.remove('hidden');
   $('dlgFull').classList.remove('hidden');   // полноэкранная кнопка
-  setHold('listen');
+  setHold('idle');
+  holdPartialMsg('Держите кнопку и говорите');
   if (NATIVE){ AndroidBridge.stopSpeak(); }
   else {
     if (SR) webStop();   // убиваем ручную сессию микрофона, если была
