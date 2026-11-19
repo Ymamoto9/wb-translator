@@ -340,6 +340,7 @@ var GLOSS_RU = [
   [['сг','срок годности'], '유통기한'],
   [['км','код маркировки'], '마킹 코드'],
   [['честный знак'], '체스니 즈나크(마킹 시스템)'],
+  [['тара'], '용기'],
   [['монопаллета'], '모노팔레트'],
   [['паллета','поддон'], '팔레트'],
   [['короб','коробка'], '박스'],
@@ -411,6 +412,7 @@ var GLOSS_KO = [
   [['운송장'], 'ТТН'],
   [['유통기한'], 'срок годности'],
   [['마킹 코드'], 'код маркировки'],
+  [['용기'], 'тара'],
   [['모노팔레트'], 'монопаллета'],
   [['팔레트'], 'паллета'],
   [['박스'], 'короб'],
@@ -1055,6 +1057,13 @@ function rms(){
 }
 function stopMeter(){
   if (volLoopId){ clearInterval(volLoopId); volLoopId = null; }
+  // ОБЯЗАТЕЛЬНО освобождаем микрофон: на iOS занятый getUserMedia-поток
+  // блокирует распознавание речи («первый раз работает, второй нет»)
+  if (micStream){
+    try{ micStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+    micStream = null;
+    analyser = null;
+  }
 }
 function startVolLoop(){
   stopMeter();
@@ -1117,13 +1126,17 @@ function dlgListen(){
     AndroidBridge.startListen(BCP[src]);
   } else if (SR){
     webStop();
-    startMeter();
-    listenStartedAt = Date.now();
-    lastLoudAt = listenStartedAt;
-    speechSeen = false;
-    finalizedFlag = false;
+    if (!IS_IOS){
+      // детектор громкости: на настольных браузерах getUserMedia и
+      // распознавание работают вместе; на iOS конфликтуют — там метр выключен
+      startMeter();
+      listenStartedAt = Date.now();
+      lastLoudAt = listenStartedAt;
+      speechSeen = false;
+      finalizedFlag = false;
+      setTimeout(function(){ if (dialogMode && listening) startVolLoop(); }, 400);
+    }
     setTimeout(function(){ if (dialogMode) webStart(); }, 250);
-    setTimeout(function(){ if (dialogMode && listening) startVolLoop(); }, 400);
   }
 }
 
