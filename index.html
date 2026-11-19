@@ -249,6 +249,7 @@ var dlgMisses = 0;             // подряд неудачных прослуш
 var dlgFlip = false;           // принудительно сменить язык прослушивания
 var recog = null;
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+var recogReset = null, makeRecog = null, webStop = null, webStart = null;   // назначаются в браузерной ветке ниже
 
 var LANG = { ru:'РУССКИЙ', ko:'КОРЕЙСКИЙ' };
 var SHORT = { ru:'РУС', ko:'КОР' };
@@ -757,9 +758,9 @@ function dlgListen(){
   dlgSetState('listening', src);
   if (NATIVE){
     AndroidBridge.startListen(BCP[src]);
-  } else if (recog){
-    try{ recog.lang = BCP[src]; recog.start(); }
-    catch(e){ setTimeout(dlgListen, 1500); }
+  } else if (SR){
+    webStop();
+    setTimeout(function(){ if (dialogMode) webStart(); }, 250);
   }
 }
 
@@ -812,7 +813,10 @@ function dlgStart(){
   $('dlgBtn').classList.add('hidden');
   $('dlgActive').classList.remove('hidden');
   if (NATIVE){ AndroidBridge.stopSpeak(); }
-  else if ('speechSynthesis' in window){ speechSynthesis.cancel(); }
+  else {
+    if (SR) webStop();   // убиваем ручную сессию микрофона, если была
+    if ('speechSynthesis' in window){ speechSynthesis.cancel(); }
+  }
   dlgListen();
 }
 
@@ -823,7 +827,7 @@ function dlgStop(){
   $('dlgActive').classList.add('hidden');
   if (NATIVE){ AndroidBridge.stopListen(); AndroidBridge.stopSpeak(); }
   else {
-    try{ if (recog) recog.stop(); }catch(e){}
+    if (SR) webStop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   }
   listening = false;
@@ -878,54 +882,108 @@ if (NATIVE){
   if (!SR){
     micBtn.disabled = true;
     $('dlgBtn').disabled = true;
-    setStatus('Голосовой ввод не поддерживается этим браузером (нужен Chrome)', 'err');
+    setStatus('Голосовой ввод не поддерживается этим браузером (нужен Chrome или Safari)', 'err');
   } else {
-    recog = new SR();
-    recog.continuous = false;
-    recog.interimResults = true;
-    recog.maxAlternatives = 1;
+    // iOS Safari: «подвисший» экземпляр распознавания — частая причина
+    // «микрофон не включается» и «не останавливается». Поэтому каждый запуск —
+    // на СВЕЖЕМ экземпляре, остановка страхуется принудительным abort().
+    var startGuard = null, stopGuard = null;
 
-    micBtn.addEventListener('click', function(){
-      if (dialogMode){ dlgListen(); return; }   // тап по 🎤 перезапускает прослушивание диалога
-      if (listening){ recog.stop(); return; }
+    // webStop/webStart объявлены как var на верхнем уровне скрипта —
+    // их вызывают dlgListen/dlgStart/dlgStop
+    recogReset = function(){
+      listening = false;
+      micBtn.classList.remove('rec');
+      if (startGuard){ clearTimeout(startGuard); startGuard = null; }
+      if (stopGuard){ clearTimeout(stopGuard); stopGuard = null; }
+    };
+
+    makeRecog = function(){
+      var r = new SR();
+      r.continuous = false;
+      r.interimResults = true;
+      r.maxAlternatives = 1;
+      r.onstart = function(){
+        listening = true;
+        micBtn.classList.add('rec');
+        if (dialogMode){
+          dlgSetState('listening', dir.split('2')[0]);
+        } else {
+          setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
+        }
+      };
+      r.onresult = function(ev){
+        var final = '', interim = '';
+        for (var i = ev.resultIndex; i < ev.results.length; i++){
+          if (ev.results[i].isFinal) final += ev.results[i][0].transcript;
+          else interim += ev.results[i][0].transcript;
+        }
+        if (final) input.value = final;
+        else if (interim) input.value = interim;
+        if (final){
+          if (dialogMode){ dlgTranslate(final); return; }
+          clearTimeout(trTimer);
+          if ($('autoTr').checked) translateNow();
+        }
+      };
+      r.onerror = function(ev){
+        var m = { 'not-allowed':'Нет доступа к микрофону — разрешите его в настройках',
+                  'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
+        listening = false;
+        micBtn.classList.remove('rec');
+        dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error));
+      };
+      r.onend = function(){
+        recogReset();
+        if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
+      };
+      return r;
+    };
+
+    webStop = function(){
+      try{ if (recog) recog.abort(); }catch(e){}
+      recog = null;
+      recogReset();
+    };
+
+    webStart = function(){
+      if (listening) return;
+      recog = makeRecog();
       try{
         recog.lang = BCP[dir.split('2')[0]];
         recog.start();
-      }catch(e){ setStatus('Микрофон уже занят, подождите', 'err'); }
-    });
+      }catch(e){
+        // «уже запущен» или разовый сбой — рвём и пробуем ещё раз через 600 мс
+        webStop();
+        setTimeout(function(){
+          if (listening) return;
+          recog = makeRecog();
+          try{ recog.lang = BCP[dir.split('2')[0]]; recog.start(); }
+          catch(e2){ setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err'); }
+        }, 600);
+        return;
+      }
+      // страховка: если за 4 сек микрофон так и не включился — сброс
+      startGuard = setTimeout(function(){
+        if (!listening){
+          webStop();
+          if (dialogMode){ setTimeout(dlgListen, 800); }
+          else setStatus('Микрофон не запустился — нажмите 🎤 ещё раз', 'err');
+        }
+      }, 4000);
+    };
 
-    recog.onstart = function(){
-      if (dialogMode) return;
-      listening = true;
-      micBtn.classList.add('rec');
-      setStatus('Говорите… (язык: ' + LANG[dir.split('2')[0]] + ')');
-    };
-    recog.onresult = function(ev){
-      var final = '', interim = '';
-      for (var i = ev.resultIndex; i < ev.results.length; i++){
-        if (ev.results[i].isFinal) final += ev.results[i][0].transcript;
-        else interim += ev.results[i][0].transcript;
+    micBtn.addEventListener('click', function(){
+      if (dialogMode){ dlgListen(); return; }
+      if (listening){
+        // остановка: stop() + страховка abort() — иначе iOS может не остановиться
+        if (stopGuard) clearTimeout(stopGuard);
+        try{ if (recog) recog.stop(); }catch(e){ webStop(); return; }
+        stopGuard = setTimeout(function(){ webStop(); }, 2500);
+        return;
       }
-      if (final) input.value = final;
-      else if (interim) input.value = interim;
-      if (final){
-        if (dialogMode){ dlgTranslate(final); return; }
-        clearTimeout(trTimer);
-        if ($('autoTr').checked) translateNow();
-      }
-    };
-    recog.onerror = function(ev){
-      var m = { 'not-allowed':'Нет доступа к микрофону — разрешите его в настройках Chrome',
-                'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
-      listening = false;
-      micBtn.classList.remove('rec');
-      dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error));
-    };
-    recog.onend = function(){
-      listening = false;
-      micBtn.classList.remove('rec');
-      if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
-    };
+      webStart();
+    });
   }
 }
 
