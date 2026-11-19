@@ -1094,6 +1094,7 @@ function dlgSetState(kind, lang){
   var dot = $('dlgDot'), txt = $('dlgText'), ban = $('dlgBanner'), sw = $('dlgSwitch');
   dot.className = 'dot ' + kind;
   ban.className = 'dlg-banner ' + kind;
+  ban.style.borderColor = ''; ban.style.background = ''; ban.style.color = '';
   var cur = dlgListenLang();
   if (kind === 'listening'){
     txt.textContent = '🎤 СЛУШАЮ: ' + LANG[cur] + (dlgExpect === 'auto' ? ' (авто)' : '');
@@ -1186,6 +1187,13 @@ var dlgErrStreak = 0;
 function dlgOnListenError(msg, code){
   listening = false;
   micBtn.classList.remove('rec');
+  // ошибка крупно на плашке (красным) — иначе юзер её не видит и не может сказать нам причину
+  var ban = $('dlgBanner');
+  if (ban && dialogMode){
+    ban.className = 'dlg-banner';
+    ban.style.borderColor = 'var(--danger)'; ban.style.background = '#fdeaea'; ban.style.color = 'var(--danger)';
+    $('dlgText').textContent = '⚠ ' + msg;
+  }
   var silence = (code === 7 || code === 1 || code === 'no-speech' || code === 'aborted');
   if (dialogMode && silence){
     dlgMisses++;
