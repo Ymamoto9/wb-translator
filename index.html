@@ -101,7 +101,7 @@
 <body>
 <header>
   <h1>Переводчик RWB</h1>
-  <span id="verBadge">v4.1 · WB UI</span>
+  <span id="verBadge">v4.2 · фикс рестарта</span>
 </header>
 
 <div id="status">Нажмите микрофон, чтобы начать диалог</div>
@@ -209,6 +209,8 @@ var dlgCurLang = 'ru-RU';    // кого слушаем СЕЙЧАС
 var dlgPhase = 'idle';       // idle | listen | think | speak
 var thinkTimer = null;       // таймер «раздумий»
 var restartTimer = null;     // отложенный рестарт прослушивания
+var chainTimer = null;       // сторож цепочки think→speak: если зависла — форсируем слушание
+var curUtter = null;         // глобальная ссылка на utterance (Chrome GC убивает onend)
 var restartPauseN = 0;       // растущая пауза против петли пустых сессий
 var _dlgFinalAt = 0;         // финал пришёл — onend не перезапускает цепочку
 var _dlgErrAt = 0;           // ошибка уже обработана — не дублировать рестарт
@@ -478,28 +480,25 @@ function speak(text, lang, onDone){
   if (dlgPhase !== 'idle') dlgPhase = 'speak';
   setStatus(lang === 'ru' ? 'Говорю (рус)…' : '말하는 중 (кор)…', 'speak');
   var u = new SpeechSynthesisUtterance(text);
+  curUtter = u;                       // держим глобально: GC может убить onend
   u.lang = (lang === 'ru') ? 'ru-RU' : 'ko-KR'; // ko-KP браузерные движки не дают
   var v = (lang === 'ru') ? ruVoice : koVoice;
   if (v) u.voice = v;
   u.rate = 0.95;
   var finished = false;
-  u.onend = function(){
+  function done(){
     if (gen !== speakGen || finished) return;   // старая цепочка — молча выходим
     finished = true;
+    if (curUtter === u) curUtter = null;
     if (onDone) onDone();
-  };
-  u.onerror = function(){
-    if (gen !== speakGen || finished) return;
-    finished = true;
-    if (onDone) onDone();
-  };
+  }
+  u.onend = done;
+  u.onerror = done;
   speechSynthesis.speak(u);
-  // страховка: если onend/onerror не пришли за 30 с — идём дальше
-  setTimeout(function(){
-    if (gen !== speakGen || finished) return;
-    finished = true;
-    if (onDone) onDone();
-  }, 30000);
+  // страховка: onend на Android/iOS может НЕ прийти вовсе — ждём по длине
+  // текста, а не вечно (45 с сторож цепочки остаётся последним рубежом)
+  var guardMs = Math.min(25000, 6000 + text.length * 150);
+  setTimeout(done, guardMs);
 }
 
 /* =================== ДИАЛОГ =================== */
@@ -538,8 +537,8 @@ function dlgListen(){
   }
   recog = new SR();
   recog.lang = dlgCurLang;           // язык доносим ДО распознавателя явно
-  recog.continuous = false;
-  recog.interimResults = true;
+  recog.continuous = true;           // браузер всё равно может сам оборвать сессию
+  recog.interimResults = true;       // (тишина/таймаут) — подхватывает onend ниже
   recog.maxAlternatives = 1;
 
   recog.onresult = function(ev){
@@ -596,6 +595,10 @@ function scheduleRestart(delay){
 
 function dlgFinal(text){
   webStop();
+  // новый финал перезапускает цепочку: старые таймеры гасим, иначе
+  // второй финал во время «раздумий» задвоит перевод и озвучку
+  if (thinkTimer){ clearTimeout(thinkTimer); thinkTimer = null; }
+  if (chainTimer){ clearTimeout(chainTimer); chainTimer = null; }
   var src = detectLang(text);
   if (!src) src = (dlgCurLang === 'ru-RU') ? 'ru' : 'ko';
   var tgt = (src === 'ru') ? 'ko' : 'ru';
@@ -612,6 +615,16 @@ function dlgFinal(text){
   /* ЗАДЕРЖКА НА «РАЗДУМЬЯ» 4–6 с — по требованию, не оптимизировать */
   var wait = 4000 + Math.floor(Math.random() * 2000);
   setStatus('Думаю… (перевод через несколько секунд)', 'think');
+
+  /* сторож цепочки: если think/speak зависли (TTS onend не пришёл,
+     а это регулярно бывает на Android/iOS) — форсируем возврат к слушанию */
+  chainTimer = setTimeout(function(){
+    chainTimer = null;
+    if (dlgOn && dlgPhase !== 'listen' && dlgPhase !== 'idle'){
+      stopSpeaking();
+      nextListen();
+    }
+  }, 45000);
 
   thinkTimer = setTimeout(function(){
     thinkTimer = null;
@@ -636,6 +649,7 @@ function dlgFinal(text){
 }
 
 function nextListen(){
+  if (chainTimer){ clearTimeout(chainTimer); chainTimer = null; }
   if (!dlgOn) { dlgPhase = 'idle'; return; }
   /* после фразы русского слушаем корейца и наоборот */
   dlgCurLang = (dlgCurLang === 'ru-RU') ? 'ko-KR' : 'ru-RU';
@@ -669,6 +683,7 @@ function dlgStop(){
   dlgPhase = 'idle';
   if (thinkTimer){ clearTimeout(thinkTimer); thinkTimer = null; }
   if (restartTimer){ clearTimeout(restartTimer); restartTimer = null; }
+  if (chainTimer){ clearTimeout(chainTimer); chainTimer = null; }
   webStop();
   stopSpeaking();
   $('micBtn').classList.remove('on');
