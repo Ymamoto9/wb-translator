@@ -100,6 +100,10 @@
 
   #output{font-size:21px; line-height:1.45; min-height:72px; word-break:break-word; white-space:pre-wrap;}
   #output.empty{color:#b3aec2;}
+  #roman{
+    font-size:14px; color:var(--muted); font-style:italic; margin-top:8px;
+    word-break:break-word; border-top:1px solid var(--line); padding-top:6px;
+  }
 
   .row{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;}
   button.act{
@@ -140,6 +144,25 @@
   .msg.them .who{color:var(--wb-pink);}
   .msg .orig{font-size:14px; color:var(--muted); margin-top:2px; word-break:break-word;}
   .msg .dst{font-size:16px; font-weight:600; margin-top:4px; word-break:break-word;}
+  .hist-head{display:flex; align-items:center; justify-content:space-between; padding:0 2px;}
+  .hist-head span{font-size:12px; font-weight:800; color:var(--muted); letter-spacing:1px;}
+  #chatExpand{
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    border-radius:8px; padding:4px 10px; font-size:13px; font-weight:700; cursor:pointer;
+  }
+  #chatExpand:active{background:#eadff3;}
+  #chatFull{position:fixed; inset:0; background:var(--bg); z-index:60; display:flex; flex-direction:column;}
+  #chatFull .cf-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 14px; background:var(--wb-grad); color:#fff; font-weight:800; font-size:16px;
+  }
+  #chatClose{
+    background:rgba(255,255,255,.2); border:none; color:#fff;
+    border-radius:8px; padding:6px 14px; font-weight:800; font-size:14px; cursor:pointer;
+  }
+  #chatClose:active{background:rgba(255,255,255,.35);}
+  #chatFullList{flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:10px;}
+  #chatFullList .msg{max-width:96%;}
   .h-item{
     background:var(--card); border:1px solid var(--line); border-radius:12px;
     padding:8px 10px; font-size:15px; cursor:pointer;
@@ -219,6 +242,7 @@
   <section class="panel">
     <div class="top"><span class="tag" id="tagOut">КОРЕЙСКИЙ</span></div>
     <div id="output" class="empty">…</div>
+    <div id="roman" class="hidden"></div>
     <div class="row">
       <button class="act" id="speak" style="flex:1">🔊 Озвучить</button>
       <button class="act" id="copy">📋 Копировать</button>
@@ -227,7 +251,8 @@
 
   <div id="status"></div>
 
-  <div id="history"><div class="h-empty">История диалога пуста</div></div>
+  <div class="hist-head"><span>💬 ЧАТ ДИАЛОГА</span><button id="chatExpand">⛶ Развернуть</button></div>
+  <div id="history"><div class="h-empty">История пуста</div></div>
 </main>
 
 <footer>Нужен интернет (перевод и голос). Озвучка работает офлайн.</footer>
@@ -240,6 +265,11 @@
     <b>Распространение запрещено.</b></p>
     <button id="infoClose">Закрыть</button>
   </div>
+</div>
+
+<div id="chatFull" class="hidden">
+  <div class="cf-head"><span>💬 Чат диалога</span><button id="chatClose">✕ Закрыть</button></div>
+  <div id="chatFullList"></div>
 </div>
 
 <script>
@@ -591,9 +621,9 @@ function setStatus(msg, cls){
 // Серверы перевода по очереди: если основной недоступен (например, VPN
 // режет запросы к translate.googleapis.com), пробуем запасные
 var MT_ENDPOINTS = [
-  function(q, sl, tl){
-    return 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
-  },
+function(q, sl, tl){
+  return 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&dt=rm&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
+},
   function(q, sl, tl){
     return 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=' + sl + '&tl=' + tl + '&q=' + encodeURIComponent(q);
   },
@@ -622,14 +652,75 @@ function parseMT(data, ep){
   return null;
 }
 
+// --- транскрипция кириллицей (как произнести по-корейски русскому) ---
+function parseRom(data, ep){
+  try{
+    if (ep === 0){
+      var rom = '';
+      data[0].forEach(function(seg){
+        if (!seg[0] && seg.length > 2 && seg[2]) rom += seg[2];
+      });
+      return rom || null;
+    }
+    if (ep === 1){
+      try{ return data[0][0][3] || null; }catch(e){ return null; }
+    }
+  }catch(e){}
+  return null;
+}
+function latToCyr(s){
+  if (!s) return '';
+  s = s.toLowerCase();
+  var rules = [
+    ['yeo','ё'],['ya','я'],['yo','ё'],['yu','ю'],['ye','е'],
+    ['ae','э'],['oe','ве'],['eo','о'],['eu','ы'],['ui','ый'],['wi','ви'],
+    ['kk','кк'],['tt','тт'],['pp','пп'],['ss','сс'],['jj','чч'],
+    ['ng','н'],['ch','ч'],['sh','ш'],
+    ['a','а'],['b','б'],['d','д'],['e','е'],['g','г'],['h','х'],['i','и'],
+    ['j','дж'],['k','к'],['l','ль'],['m','м'],['n','н'],['o','о'],['p','п'],
+    ['r','р'],['s','с'],['t','т'],['u','у'],['w','в'],['y','й'],
+    ['f','ф'],['v','в'],['z','з']
+  ];
+  var out = '', i = 0;
+  while (i < s.length){
+    var hit = null;
+    for (var k = 0; k < rules.length; k++){
+      if (s.substr(i, rules[k][0].length) === rules[k][0]){ hit = rules[k]; break; }
+    }
+    if (hit){ out += hit[1]; i += hit[0].length; }
+    else { out += s.charAt(i); i++; }
+  }
+  return out;
+}
+function setRoman(text){
+  var el = $('roman');
+  if (text){ el.textContent = '🔊 Произносится: «' + text + '»'; el.classList.remove('hidden'); }
+  else el.classList.add('hidden');
+}
+function mtRoman(text, done){
+  var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&dt=rm&sl=ko&tl=en&q=' + encodeURIComponent(text);
+  fetch(url)
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(data){ done(parseRom(data, 0)); })
+    .catch(function(){ done(null); });
+}
+function showRoman(out, tl, rom){
+  if (tl !== 'ko'){ setRoman(null); return; }
+  if (rom){ setRoman(latToCyr(rom)); return; }
+  // романизации нет (точный термин из словаря / запасной сервер) — запросим отдельно
+  if (/[가-힣]/.test(out)){
+    mtRoman(out, function(r){ setRoman(r ? latToCyr(r) : null); });
+  } else setRoman(null);
+}
+
 function mtFetch(q, sl, tl, done){
   var attempt = function(ep){
-    if (ep >= MT_ENDPOINTS.length){ done(null); return; }
+    if (ep >= MT_ENDPOINTS.length){ done(null, null); return; }
     fetch(MT_ENDPOINTS[ep](q, sl, tl))
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data){
         var out = parseMT(data, ep);
-        if (out) done(out);
+        if (out){ done(out, parseRom(data, ep)); }
         else attempt(ep + 1);
       })
       .catch(function(){ attempt(ep + 1); });
@@ -650,7 +741,7 @@ function doTranslate(text, sl, tl, cb){
       cb(true, g.text);
       return;
     }
-    mtFetch(g.text, sl, tl, function(out){
+    mtFetch(g.text, sl, tl, function(out, rom){
       if (!out){
         busy = false;
         setStatus('Ошибка перевода. Возможно, мешает VPN — смените сервер или выключите его', 'err');
@@ -669,6 +760,7 @@ function doTranslate(text, sl, tl, cb){
         output.classList.remove('empty');
         addHistory(text, out, sl, tl);
         busy = false;
+        showRoman(out, tl, null);
         setStatus('📖 Словарь склада: ' + g.tokens.length + ' терм.', 'ok');
         cb(true, out);
       } else if (g.tokens.length){
@@ -681,6 +773,7 @@ function doTranslate(text, sl, tl, cb){
             output.classList.remove('empty');
             addHistory(text, raw, sl, tl);
             busy = false;
+            showRoman(raw, tl, null);
             setStatus('Перевод без словаря (термины не закрепились)', 'err');
             cb(true, raw);
           } else {
@@ -695,6 +788,7 @@ function doTranslate(text, sl, tl, cb){
         output.classList.remove('empty');
         addHistory(text, out, sl, tl);
         busy = false;
+        showRoman(out, tl, null);
         setStatus('', 'ok');
         cb(true, out);
       }
@@ -761,6 +855,10 @@ function unlockTTS(){
     var u = new SpeechSynthesisUtterance(' ');
     u.volume = 0;
     speechSynthesis.speak(u);
+    // заодно разблокируем Audio-элемент (для онлайн-голоса)
+    var a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+    a.volume = 0;
+    var p = a.play(); if (p && p.catch) p.catch(function(){});
     ttsUnlocked = true;
   }catch(e){}
 }
@@ -784,15 +882,41 @@ function pickVoice(lang){
   return null;
 }
 
-function speak(text, lang, onend){
-  if (!text){ if (onend) onend(); return; }
-  if (NATIVE){
-    window._speakEnd = onend || null;
-    AndroidBridge.speak(text, lang);
-    return;
+function splitForTTS(text, max){
+  var parts = [], s = text.trim();
+  while (s.length > max){
+    var cut = s.lastIndexOf(' ', max);
+    if (cut < max / 2) cut = max;
+    parts.push(s.slice(0, cut).trim());
+    s = s.slice(cut).trim().replace(/^[,\.]\s*/, '');
   }
+  if (s.length) parts.push(s);
+  return parts;
+}
+
+// онлайн-голос Google Translate (как в Гугл-переводчике): корейский — женский,
+// русский — мужской. Ошибка → откат на системный синтезатор (sysSpeak)
+function speakGT(text, lang, onend, onfail){
+  try{
+    speechSynthesis.cancel();
+    var a = new Audio('https://translate.google.com/translate_tts?ie=UTF-8' +
+      '&client=tw-ob&ttsspeed=1&tl=' + lang + '&q=' + encodeURIComponent(text));
+    window._gtAudio = a;
+    var done = false;
+    var fin = function(){ if (!done){ done = true; if (onend) onend(); } };
+    var fail = function(){ if (!done){ done = true; a.src = ''; if (onfail) onfail(); } };
+    a.onerror = fail;
+    a.onended = fin;
+    var p = a.play();
+    if (p && p.catch) p.catch(function(){ fail(); });
+    // страховка: если за 5 с звук так и не пошёл — системный голос
+    setTimeout(function(){ if (!done && (!a.currentTime || a.paused && !a.ended)) fail(); }, 5000);
+  }catch(e){ if (onfail) onfail(); }
+}
+
+// системный синтезатор (офлайн-запасной вариант)
+function sysSpeak(text, lang, onend){
   if (!('speechSynthesis' in window)){ if (onend) onend(); return; }
-  unlockTTS();
   try{
     speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text);
@@ -817,6 +941,30 @@ function speak(text, lang, onend){
     // страховка: если iOS вообще не вызвал события — продолжаем через 15 сек
     setTimeout(fin, 15000);
   }catch(e){ if (onend) onend(); }
+}
+
+function speak(text, lang, onend){
+  if (!text){ if (onend) onend(); return; }
+  if (NATIVE){
+    window._speakEnd = onend || null;
+    AndroidBridge.speak(text, lang);
+    return;
+  }
+  if (!('speechSynthesis' in window) && !window.Audio){ if (onend) onend(); return; }
+  unlockTTS();
+  var parts = splitForTTS(text, 180);
+  var idx = 0;
+  var playNext = function(){
+    if (idx >= parts.length){ if (onend) onend(); return; }
+    var p = parts[idx++];
+    speakGT(p, lang, playNext, function(){
+      // онлайн-голос не удался — озвучиваем остаток системным голосом
+      var rest = (p + ' ' + parts.slice(idx).join(' ')).trim();
+      idx = parts.length;
+      sysSpeak(rest, lang, onend);
+    });
+  };
+  playNext();
 }
 window.onNativeSpeakDone = function(){
   if (window._speakEnd){ var f = window._speakEnd; window._speakEnd = null; f(); }
@@ -958,6 +1106,7 @@ function dlgTranslate(text){
   if (!det) det = dlgListenLang();   // скрипт не определился — считаем ожидаемым языком
   dlgLastSpeaker = det;
   dlgMisses = 0;
+  dlgErrStreak = 0;
   window._lastSpk = det;
   var other = det === 'ru' ? 'ko' : 'ru';
   beepAccepted();                    // фраза принята
@@ -980,19 +1129,35 @@ function dlgRun(text, sl, tl){
   });
 }
 
-// ошибка прослушки в диалоге: после двух тишин подряд переключаем язык
-function dlgOnListenError(msg){
-  dlgMisses++;
-  if (dialogMode && dlgMisses >= 2 && dlgExpect === 'auto'){
-    dlgFlip = true;
-    dlgMisses = 0;
-    setStatus('Не слышу речь — переключаю язык прослушивания', 'err');
+// ошибка прослушки в диалоге: переключаем язык ТОЛЬКО если это тишина
+// (говорят на другом языке); ошибки сервиса — просто повтор того же языка
+var dlgErrStreak = 0;
+function dlgOnListenError(msg, code){
+  listening = false;
+  micBtn.classList.remove('rec');
+  var silence = (code === 7 || code === 1 || code === 'no-speech' || code === 'aborted');
+  if (dialogMode && silence){
+    dlgMisses++;
+    if (dlgMisses >= 2 && dlgExpect === 'auto'){
+      dlgFlip = true;
+      dlgMisses = 0;
+      setStatus('Не слышу речь — переключаю язык прослушивания', 'err');
+    } else {
+      setStatus('Тишина — слушаю…');
+    }
+    setTimeout(dlgListen, 1500);
   } else if (dialogMode){
+    dlgErrStreak++;
     setStatus(msg, 'err');
+    if (dlgErrStreak >= 4){
+      dlgErrStreak = 0;
+      setStatus('Распознавание не отвечает на языке ' + LANG[dlgListenLang()] +
+        '. Проверьте интернет и обновление приложения Google (Android)', 'err');
+    }
+    setTimeout(dlgListen, 2500);
   } else {
     setStatus(msg, 'err');
   }
-  if (dialogMode) setTimeout(dlgListen, 2000);
 }
 
 function dlgStart(){
@@ -1072,10 +1237,8 @@ if (NATIVE){
     clearTimeout(trTimer);
     if ($('autoTr').checked) translateNow();
   };
-  window.onNativeError = function(msg){
-    listening = false;
-    micBtn.classList.remove('rec');
-    dlgOnListenError(msg);
+  window.onNativeError = function(msg, code){
+    dlgOnListenError(msg, code);
   };
 } else {
   if (!SR){
@@ -1130,7 +1293,7 @@ if (NATIVE){
                   'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
         listening = false;
         micBtn.classList.remove('rec');
-        dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error));
+        dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
       };
       r.onend = function(){
         recogReset();
@@ -1193,34 +1356,47 @@ function addHistory(src, dst, sl, tl){
   if (dialogLog.length > 50) dialogLog.pop();
   renderHistory();
 }
+function makeBubble(it){
+  var who, cls;
+  if (it.who === 'ko'){ who = '🇰🇵 КОРЕЕЦ'; cls = 'them'; }
+  else if (it.who === 'ru'){ who = '🇷🇺 РУССКИЙ'; cls = 'me'; }
+  else { who = 'ВЫ'; cls = 'me'; }
+  var d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.innerHTML = '<div class="who"></div><div class="orig"></div><div class="dst"></div>';
+  d.querySelector('.who').textContent = who;
+  d.querySelector('.orig').textContent = it.src;
+  d.querySelector('.dst').textContent = it.dst;
+  d.addEventListener('click', function(){
+    // тап по сообщению: показать и снова озвучить
+    input.value = it.src;
+    lastResult = it.dst;
+    output.textContent = it.dst;
+    output.classList.remove('empty');
+    showRoman(it.dst, it.tl, null);
+    speak(it.dst, it.tl);
+    window.scrollTo(0, 0);
+  });
+  return d;
+}
 function renderHistory(){
   var h = $('history');
   h.innerHTML = '';
   if (!dialogLog.length){ h.innerHTML = '<div class="h-empty">История пуста</div>'; return; }
   dialogLog.slice().reverse().forEach(function(it){
-    var who, cls;
-    if (it.who === 'ko'){ who = '🇰🇵 КОРЕЕЦ'; cls = 'them'; }
-    else if (it.who === 'ru'){ who = '🇷🇺 РУССКИЙ'; cls = 'me'; }
-    else { who = 'ВЫ'; cls = 'me'; }
-    var d = document.createElement('div');
-    d.className = 'msg ' + cls;
-    d.innerHTML = '<div class="who"></div><div class="orig"></div><div class="dst"></div>';
-    d.querySelector('.who').textContent = who;
-    d.querySelector('.orig').textContent = it.src;
-    d.querySelector('.dst').textContent = it.dst;
-    d.addEventListener('click', function(){
-      // тап по сообщению: показать и снова озвучить
-      input.value = it.src;
-      lastResult = it.dst;
-      output.textContent = it.dst;
-      output.classList.remove('empty');
-      speak(it.dst, it.tl);
-      window.scrollTo(0, 0);
-    });
-    h.appendChild(d);
-    h.scrollTop = h.scrollHeight;
+    h.appendChild(makeBubble(it));
   });
+  h.scrollTop = h.scrollHeight;
 }
+$('chatExpand').addEventListener('click', function(){
+  var list = $('chatFullList');
+  list.innerHTML = '';
+  if (!dialogLog.length) list.innerHTML = '<div class="h-empty">История пуста</div>';
+  dialogLog.slice().reverse().forEach(function(it){ list.appendChild(makeBubble(it)); });
+  list.scrollTop = list.scrollHeight;
+  $('chatFull').classList.remove('hidden');
+});
+$('chatClose').addEventListener('click', function(){ $('chatFull').classList.add('hidden'); });
 </script>
 </body>
 </html>
