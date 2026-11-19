@@ -1,0 +1,11 @@
+{
+  "name": "Переводчик РУ-КОР",
+  "short_name": "Переводчик",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#481173",
+  "theme_color": "#481173",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "192x192", "type": "image/png" }
+  ]
+}
