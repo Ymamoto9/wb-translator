@@ -227,6 +227,7 @@
     <span class="chip" id="langFrom">РУС</span>
     <button id="swap" title="Поменять языки">⇄</button>
     <span class="chip chip-b" id="langTo">КОР</span>
+    <span id="verBadge" style="opacity:.55; font-size:11px; font-weight:700; margin-left:6px;">v3.4</span>
   </div>
   <button id="infoBtn" title="О программе">ⓘ</button>
 </header>
@@ -1393,6 +1394,7 @@ if (NATIVE){
         }
       };
       r.onerror = function(ev){
+        if (r._killed) return;   // убили сами — это не ошибка
         var m = { 'not-allowed':'Нет доступа к микрофону — разрешите его в настройках',
                   'no-speech':'Речь не распознана', 'network':'Ошибка сети распознавания' };
         listening = false;
@@ -1400,12 +1402,14 @@ if (NATIVE){
         dlgOnListenError(m[ev.error] || ('Ошибка микрофона: ' + ev.error), ev.error);
       };
       r.onend = function(){
+        var killed = !!r._killed;
         var hadFinal = window._dlgFinalAt && (Date.now() - window._dlgFinalAt < 4000);
         var hadErr = window._dlgErrAt && (Date.now() - window._dlgErrAt < 3000);
         recogReset();
         if (statusEl.textContent.indexOf('Говорите') === 0) setStatus('');
-        // Метр остановил распознаватель, но Chrome не выдал финальный текст —
-        // молча перезапускаем прослушивание, иначе диалог умирает без ошибок
+        if (killed) return;   // наша плановая остановка — новый запуск уже позаботится о себе
+        // Сессия кончилась без финального текста и без ошибки — молча перезапускаем,
+        // иначе диалог умирает без единого сообщения
         if (dialogMode && !hadFinal && !hadErr){
           // пустых концов подряд всё больше — растущий таймаут, чтобы не крутить
           // петлю старт/стоп в темпе метронома
@@ -1418,7 +1422,9 @@ if (NATIVE){
     };
 
     webStop = function(){
-      try{ if (recog) recog.abort(); }catch(e){}
+      // помечаем экземпляр как убитый НАМИ: его onerror('aborted')/onend —
+      // не ошибка и не повод перезапускать прослушивание (иначе каскад рестартов)
+      try{ if (recog){ recog._killed = true; recog.abort(); } }catch(e){}
       recog = null;
       recogReset();
     };
